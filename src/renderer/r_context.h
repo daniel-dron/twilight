@@ -14,6 +14,7 @@
 #pragma once
 
 #include <Volk/volk.h>
+#include "r_swapchain.h"
 #include "types.h"
 
 namespace tl {
@@ -41,6 +42,9 @@ namespace tl {
         // Properties
         VkPhysicalDeviceProperties2       properties        = { };
         VkPhysicalDeviceMemoryProperties2 memory_properties = { };
+
+        // Swapchain
+        Swapchain swapchain = { };
 
     private:
         void _create_device( const std::string& name, struct SDL_Window* window );

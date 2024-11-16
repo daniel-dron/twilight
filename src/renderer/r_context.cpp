@@ -38,9 +38,14 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
 #endif
 
     _create_device( name, window );
+
+    // Swapchain
+    swapchain.initialize( width, height, chosen_gpu, device, surface );
 }
 
 void Context::shutdown( ) {
+    swapchain.shutdown( device );
+
     vmaDestroyAllocator( allocator );
 
     vkDestroyDebugUtilsMessengerEXT( instance, debug_messenger, nullptr );

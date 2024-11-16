@@ -25,8 +25,8 @@ namespace tl {
 
         void Run( );
 
-        static const u32 WIDTH  = 1920;
-        static const u32 HEIGHT = 1080;
+        u32 width  = 1920;
+        u32 height = 1080;
 
     private:
         void process_events( );
@@ -34,7 +34,7 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
-        Context m_vulkan_context = { };
+        Context m_ctx = { };
     };
 
 } // namespace tl
