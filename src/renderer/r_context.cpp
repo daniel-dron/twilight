@@ -29,6 +29,10 @@
 using namespace tl;
 using namespace vkb;
 
+namespace tl {
+    Context g_ctx = { };
+}
+
 void Context::initialize( u32 width, u32 height, const std::string& name, struct SDL_Window* window ) {
 
 // Enable validation in debug mode

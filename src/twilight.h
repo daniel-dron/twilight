@@ -14,7 +14,6 @@
 #pragma once
 
 #include <types.h>
-#include "renderer/r_context.h"
 
 namespace tl {
 
@@ -33,8 +32,6 @@ namespace tl {
 
         SDL_Window* m_window = { };
         bool        m_quit   = false;
-
-        Context m_ctx = { };
     };
 
 } // namespace tl

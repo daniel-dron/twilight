@@ -52,4 +52,6 @@ namespace tl {
         bool m_validation_layers = false;
     };
 
+    extern Context g_ctx;
+
 } // namespace tl

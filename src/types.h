@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <print>
+
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -33,4 +35,18 @@ T* PtrTo( T&& v ) {
 
 #ifndef NDEBUG
 #define DEBUG
+#include <vulkan/vk_enum_string_helper.h>
+#define VKCALL( x )                                                              \
+    do {                                                                         \
+        VkResult err = x;                                                        \
+        if ( err ) {                                                             \
+            std::println( "{} {} Detected Vulkan error: {}", __FILE__, __LINE__, \
+                          string_VkResult( err ) );                              \
+            abort( );                                                            \
+        }                                                                        \
+    }                                                                            \
+    while ( 0 )
+#else
+#define VKCALL( x ) x
+
 #endif

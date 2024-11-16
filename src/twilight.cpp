@@ -11,13 +11,14 @@
 ******************************************************************************
 ******************************************************************************/
 
+#include "twilight.h"
+
 #include <SDL2/SDL_video.h>
 #include <pch.h>
 #include "SDL.h"
-#include "SDL_events.h"
-#include "renderer/r_context.h"
 
-#include "twilight.h"
+#include <renderer/r_context.h>
+#include <renderer/r_shaders.h>
 
 using namespace tl;
 
@@ -28,11 +29,18 @@ void Renderer::Initialize( ) {
 
     m_window = SDL_CreateWindow( "Twilight", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags );
 
-    m_ctx.initialize( width, height, "Twilight", m_window );
+    g_ctx.initialize( width, height, "Twilight", m_window );
+
+    Pipeline pipeline;
+    pipeline.initialize( PipelineConfig{
+            .name    = "test",
+            .compute = "../shaders/test.comp.spv",
+    } );
+    pipeline.shutdown( );
 }
 
 void Renderer::Shutdown( ) {
-    m_ctx.shutdown( );
+    g_ctx.shutdown( );
 
     SDL_DestroyWindow( m_window );
 }
@@ -54,7 +62,7 @@ void Renderer::process_events( ) {
             if ( event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && event.window.data1 > 0 && event.window.data2 > 0 ) {
                 this->width  = event.window.data1;
                 this->height = event.window.data2;
-                m_ctx.swapchain.resize( event.window.data1, event.window.data2, m_ctx.chosen_gpu, m_ctx.device, m_ctx.surface );
+                g_ctx.swapchain.resize( event.window.data1, event.window.data2, g_ctx.chosen_gpu, g_ctx.device, g_ctx.surface );
             }
         }
     }
