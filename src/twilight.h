@@ -28,6 +28,7 @@ namespace tl {
         u32 height = 1080;
 
     private:
+        void tick( u32 swapchain_image_idx );
         void process_events( );
 
         SDL_Window* m_window = { };

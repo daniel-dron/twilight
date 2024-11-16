@@ -26,6 +26,10 @@ void Swapchain::initialize( u32 width, u32 height, VkPhysicalDevice physical_dev
 }
 
 void Swapchain::shutdown( VkDevice device ) {
+    for ( auto& image_view : views ) {
+        vkDestroyImageView( device, image_view, nullptr );
+    }
+
     vkDestroySwapchainKHR( device, swapchain, nullptr );
 }
 
@@ -52,5 +56,6 @@ void Swapchain::create( u32 width, u32 height, VkPhysicalDevice physical_device,
     vkDestroySwapchainKHR( device, old_swapchain, nullptr );
 
     images = swapchain->get_images( ).value( );
+    views  = swapchain->get_image_views( ).value( );
     assert( images.size( ) != 0 );
 }

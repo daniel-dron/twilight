@@ -14,6 +14,8 @@
 #include <cassert>
 #include <pch.h>
 #include <print>
+#include <vulkan/vulkan_core.h>
+#include "r_resources.h"
 
 #define VOLK_IMPLEMENTATION
 #include <Volk/volk.h>
@@ -45,10 +47,20 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
 
     // Swapchain
     swapchain.initialize( width, height, chosen_gpu, device, surface );
+
+    _create_frames( );
 }
 
 void Context::shutdown( ) {
     swapchain.shutdown( device );
+
+    // shutdown frames
+    for ( auto& frame : frames ) {
+        vkDestroyCommandPool( g_ctx.device, frame.pool, nullptr );
+        vkDestroySemaphore( g_ctx.device, frame.swapchain_semaphore, nullptr );
+        vkDestroySemaphore( g_ctx.device, frame.render_semaphore, nullptr );
+        vkDestroyFence( g_ctx.device, frame.fence, nullptr );
+    }
 
     vmaDestroyAllocator( allocator );
 
@@ -85,7 +97,9 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     assert( this->surface != VK_NULL_HANDLE );
 
     // Physical device
-    VkPhysicalDeviceVulkan13Features features_13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+    VkPhysicalDeviceVulkan13Features features_13{ .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+                                                  .synchronization2 = true,
+                                                  .dynamicRendering = true };
     VkPhysicalDeviceVulkan12Features features_12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     VkPhysicalDeviceVulkan11Features features_11{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
     VkPhysicalDeviceFeatures         features{ };
@@ -142,4 +156,32 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
 
     auto res = vmaCreateAllocator( &info, &this->allocator );
     assert( res == VK_SUCCESS );
+}
+
+void Context::_create_frames( ) {
+    for ( auto& frame : frames ) {
+        const VkCommandPoolCreateInfo info{
+                .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                .pNext            = nullptr,
+                .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                .queueFamilyIndex = graphics_queue_family };
+        VKCALL( vkCreateCommandPool( device, &info, nullptr, &frame.pool ) );
+
+        const VkCommandBufferAllocateInfo cmd_info = {
+                .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .pNext              = nullptr,
+                .commandPool        = frame.pool,
+                .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                .commandBufferCount = 1,
+        };
+        VKCALL( vkAllocateCommandBuffers( device, &cmd_info, &frame.cmd ) );
+
+        frame.fence               = create_fence( VK_FENCE_CREATE_SIGNALED_BIT );
+        frame.swapchain_semaphore = create_semaphore( );
+        frame.render_semaphore    = create_semaphore( );
+    }
+}
+
+FrameData& Context::get_current_frame( ) {
+    return frames.at( current_frame % frame_overlap );
 }

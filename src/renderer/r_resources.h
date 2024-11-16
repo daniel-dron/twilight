@@ -13,25 +13,10 @@
 
 #pragma once
 
-#include <Volk/volk.h>
-#include "types.h"
-
 namespace tl {
-
-    struct Swapchain {
-        VkSwapchainKHR           swapchain = VK_NULL_HANDLE;
-        std::vector<VkImage>     images;
-        std::vector<VkImageView> views;
-        u32                      width, height;
-        u32                      image_count;
-
-        void initialize( u32 width, u32 height, VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface );
-        void shutdown( VkDevice device );
-
-        void resize( u32 width, u32 height, VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface );
-
-    private:
-        void create( u32 width, u32 height, VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface, VkSwapchainKHR old_swapchain );
-    };
-
+    VkFence                   create_fence( const VkFenceCreateFlags flags = 0 );
+    VkSemaphore               create_semaphore( const VkSemaphoreCreateFlags flags = 0 );
+    void                      begin_command( VkCommandBuffer cmd, const VkCommandBufferUsageFlags flags = 0 );
+    void                      submit_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_stage, const VkPipelineStageFlags2 signal_stage, const VkSemaphore swapchain_semaphore, const VkSemaphore render_semaphore, const VkFence fence );
+    VkRenderingAttachmentInfo attachment( const VkImageView view, const VkClearValue* clear, const VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
 } // namespace tl

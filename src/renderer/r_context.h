@@ -19,9 +19,19 @@
 
 namespace tl {
 
+    struct FrameData {
+        VkCommandPool   pool;
+        VkCommandBuffer cmd;
+        VkSemaphore     swapchain_semaphore;
+        VkSemaphore     render_semaphore;
+        VkFence         fence;
+    };
+
     struct Context {
         void initialize( u32 width, u32 height, const std::string& name, struct SDL_Window* window );
         void shutdown( );
+
+        FrameData& get_current_frame( );
 
         // Vulkan handles
         VkInstance               instance        = VK_NULL_HANDLE;
@@ -46,8 +56,13 @@ namespace tl {
         // Swapchain
         Swapchain swapchain = { };
 
+        u32                                  current_frame = 0;
+        static constexpr u32                 frame_overlap = 2;
+        std::array<FrameData, frame_overlap> frames;
+
     private:
         void _create_device( const std::string& name, struct SDL_Window* window );
+        void _create_frames( );
 
         bool m_validation_layers = false;
     };
