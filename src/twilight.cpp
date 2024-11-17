@@ -35,19 +35,21 @@ void Renderer::Initialize( ) {
 
     g_ctx.initialize( width, height, "Twilight", m_window );
 
-    Pipeline pipeline;
-    pipeline.initialize( PipelineConfig{
-            .name    = "test",
-            .compute = "../shaders/test.comp.spv",
+    m_pipeline.initialize( PipelineConfig{
+            .name          = "mesh",
+            .vertex        = "../shaders/mesh.vert.spv",
+            .pixel         = "../shaders/mesh.frag.spv",
+            .cull_mode     = VK_CULL_MODE_NONE,
+            .color_targets = {
+                    PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
     } );
-    pipeline.shutdown( );
 }
 
 void Renderer::Shutdown( ) {
     vkDeviceWaitIdle( g_ctx.device );
 
+    m_pipeline.shutdown( );
     g_ctx.shutdown( );
-
     SDL_DestroyWindow( m_window );
 }
 
@@ -70,7 +72,13 @@ void Renderer::Run( ) {
         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
+        image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
+                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
         tick( swapchain_image_idx );
+        image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
+                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                       VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR );
 
         // Submit command
         VKCALL( vkEndCommandBuffer( cmd ) );
@@ -112,17 +120,28 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
 
-    VkClearValue clear_color{ 1.0f, 0.0f, 1.0f, 1.0f };
-    std::array   attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
-
+    VkClearValue    clear_color{ 1.0f, 0.0f, 1.0f, 1.0f };
+    std::array      attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
     VkRenderingInfo render_info = {
             .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
             .pNext                = nullptr,
             .renderArea           = VkRect2D{ VkOffset2D{ 0, 0 }, VkExtent2D{ width, height } },
             .layerCount           = 1,
-            .colorAttachmentCount = attachments.size( ),
+            .colorAttachmentCount = ( u32 )attachments.size( ),
             .pColorAttachments    = attachments.data( ) };
     vkCmdBeginRendering( cmd, &render_info );
+
+    VkViewport viewport = {
+            .x = 0, .y = 0, .width = ( float )width, .height = ( float )height, .minDepth = 0.0f, .maxDepth = 1.0f };
+    vkCmdSetViewport( cmd, 0, 1, &viewport );
+
+    const VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = { .width = width, .height = height } };
+    vkCmdSetScissor( cmd, 0, 1, &scissor );
+
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline.pipeline );
+    vkCmdDraw( cmd, 3, 1, 0, 0 );
 
     vkCmdEndRendering( cmd );
 }

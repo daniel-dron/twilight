@@ -24,6 +24,7 @@ namespace tl {
         std::vector<VkImageView> views;
         u32                      width, height;
         u32                      image_count;
+        VkFormat                 format;
 
         void initialize( u32 width, u32 height, VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface );
         void shutdown( VkDevice device );

@@ -64,7 +64,9 @@ void Context::shutdown( ) {
 
     vmaDestroyAllocator( allocator );
 
-    vkDestroyDebugUtilsMessengerEXT( instance, debug_messenger, nullptr );
+    if ( debug_messenger ) {
+        vkDestroyDebugUtilsMessengerEXT( instance, debug_messenger, nullptr );
+    }
     vkDestroySurfaceKHR( instance, surface, nullptr );
     vkDestroyDevice( device, nullptr );
     vkDestroyInstance( instance, nullptr );

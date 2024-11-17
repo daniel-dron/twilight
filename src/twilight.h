@@ -14,6 +14,7 @@
 #pragma once
 
 #include <types.h>
+#include "renderer/r_shaders.h"
 
 namespace tl {
 
@@ -33,6 +34,8 @@ namespace tl {
 
         SDL_Window* m_window = { };
         bool        m_quit   = false;
+
+        Pipeline m_pipeline;
     };
 
 } // namespace tl
