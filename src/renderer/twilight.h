@@ -13,10 +13,22 @@
 
 #pragma once
 
+#include <renderer/r_shaders.h>
 #include <types.h>
-#include "renderer/r_shaders.h"
 
 namespace tl {
+    struct Camera {
+        glm::vec3 position;
+        glm::quat orientation;
+        float     fov;
+        float     near;
+        float     far;
+    };
+
+    struct ScenePushConstants {
+        glm::mat4 view;
+        glm::mat4 projection;
+    };
 
     class Renderer {
     public:
@@ -36,6 +48,7 @@ namespace tl {
         bool        m_quit   = false;
 
         Pipeline m_pipeline;
+        Camera   m_camera;
     };
 
 } // namespace tl

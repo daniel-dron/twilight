@@ -17,6 +17,7 @@
 #include <array>
 #include <pch.h>
 #include "SDL.h"
+#include "glm/ext/matrix_clip_space.hpp"
 #include "renderer/r_resources.h"
 #include "types.h"
 
@@ -35,13 +36,19 @@ void Renderer::Initialize( ) {
 
     g_ctx.initialize( width, height, "Twilight", m_window );
 
+    m_camera.near        = 0.001f;
+    m_camera.far         = 1000.0f;
+    m_camera.fov         = 70.0f;
+    m_camera.position    = glm::vec3( 0.0f, 0.0f, -5.0f );
+    m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
+
     m_pipeline.initialize( PipelineConfig{
-            .name          = "mesh",
-            .vertex        = "../shaders/mesh.vert.spv",
-            .pixel         = "../shaders/mesh.frag.spv",
-            .cull_mode     = VK_CULL_MODE_NONE,
-            .color_targets = {
-                    PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
+            .name                 = "mesh",
+            .vertex               = "../shaders/mesh.vert.spv",
+            .pixel                = "../shaders/mesh.frag.spv",
+            .cull_mode            = VK_CULL_MODE_NONE,
+            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
     } );
 }
 
@@ -120,7 +127,7 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
 
-    VkClearValue    clear_color{ 1.0f, 0.0f, 1.0f, 1.0f };
+    VkClearValue    clear_color{ 0.1f, 0.05f, 0.1f, 1.0f };
     std::array      attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
     VkRenderingInfo render_info = {
             .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
@@ -141,6 +148,17 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     vkCmdSetScissor( cmd, 0, 1, &scissor );
 
     vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline.pipeline );
+
+    // Camera matrices
+    glm::mat4 view       = glm::mat4_cast( m_camera.orientation );
+    view[3]              = glm::vec4( m_camera.position, 1.0f );
+    view                 = inverse( view );
+    glm::mat4 projection = glm::perspective( m_camera.fov, ( float )width / ( float )height, m_camera.near, m_camera.far );
+
+    ScenePushConstants pc{
+            .view       = view,
+            .projection = projection };
+    vkCmdPushConstants( cmd, m_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
     vkCmdDraw( cmd, 3, 1, 0, 0 );
 
     vkCmdEndRendering( cmd );
