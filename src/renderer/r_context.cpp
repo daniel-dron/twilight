@@ -44,11 +44,11 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
 #endif
 
     _create_device( name, window );
+    _create_frames( );
+    _create_global_command( );
 
     // Swapchain
     swapchain.initialize( width, height, chosen_gpu, device, surface );
-
-    _create_frames( );
 }
 
 void Context::shutdown( ) {
@@ -56,11 +56,14 @@ void Context::shutdown( ) {
 
     // shutdown frames
     for ( auto& frame : frames ) {
-        vkDestroyCommandPool( g_ctx.device, frame.pool, nullptr );
-        vkDestroySemaphore( g_ctx.device, frame.swapchain_semaphore, nullptr );
-        vkDestroySemaphore( g_ctx.device, frame.render_semaphore, nullptr );
-        vkDestroyFence( g_ctx.device, frame.fence, nullptr );
+        vkDestroyCommandPool( device, frame.pool, nullptr );
+        vkDestroySemaphore( device, frame.swapchain_semaphore, nullptr );
+        vkDestroySemaphore( device, frame.render_semaphore, nullptr );
+        vkDestroyFence( device, frame.fence, nullptr );
     }
+
+    vkDestroyCommandPool( device, pool, nullptr );
+    vkDestroyFence( device, global_fence, nullptr );
 
     vmaDestroyAllocator( allocator );
 
@@ -70,6 +73,26 @@ void Context::shutdown( ) {
     vkDestroySurfaceKHR( instance, surface, nullptr );
     vkDestroyDevice( device, nullptr );
     vkDestroyInstance( instance, nullptr );
+}
+
+void Context::_create_global_command( ) {
+    const VkCommandPoolCreateInfo info{
+            .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .pNext            = nullptr,
+            .flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = graphics_queue_family };
+    VKCALL( vkCreateCommandPool( device, &info, nullptr, &pool ) );
+
+    const VkCommandBufferAllocateInfo cmd_info = {
+            .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext              = nullptr,
+            .commandPool        = pool,
+            .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+    };
+    VKCALL( vkAllocateCommandBuffers( device, &cmd_info, &global_cmd ) );
+
+    global_fence = create_fence( VK_FENCE_CREATE_SIGNALED_BIT );
 }
 
 void Context::_create_device( const std::string& name, struct SDL_Window* window ) {
@@ -102,7 +125,9 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     VkPhysicalDeviceVulkan13Features features_13{ .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
                                                   .synchronization2 = true,
                                                   .dynamicRendering = true };
-    VkPhysicalDeviceVulkan12Features features_12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+    VkPhysicalDeviceVulkan12Features features_12{
+            .sType               = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .bufferDeviceAddress = true };
     VkPhysicalDeviceVulkan11Features features_11{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
     VkPhysicalDeviceFeatures         features{ };
 

@@ -14,12 +14,15 @@
 #pragma once
 
 #include <types.h>
+#include <vulkan/vulkan_core.h>
+#include "pch.h"
 
 namespace tl {
     VkFence                   create_fence( const VkFenceCreateFlags flags = 0 );
     VkSemaphore               create_semaphore( const VkSemaphoreCreateFlags flags = 0 );
     void                      begin_command( VkCommandBuffer cmd, const VkCommandBufferUsageFlags flags = 0 );
-    void                      submit_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_stage, const VkPipelineStageFlags2 signal_stage, const VkSemaphore swapchain_semaphore, const VkSemaphore render_semaphore, const VkFence fence );
+    void                      submit_graphics_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_stage, const VkPipelineStageFlags2 signal_stage, const VkSemaphore swapchain_semaphore, const VkSemaphore render_semaphore, const VkFence fence );
+    void                      submit_command( VkCommandBuffer cmd, VkQueue queue, const VkFence fence );
     VkRenderingAttachmentInfo attachment( const VkImageView view, const VkClearValue* clear, const VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
     void                      image_barrier( VkCommandBuffer cmd, VkImage image, VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkImageLayout old_layout, VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access, VkImageLayout new_layout, VkImageAspectFlags aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT, u32 base_mip = 0, u32 level_count = VK_REMAINING_MIP_LEVELS );
 
@@ -37,6 +40,20 @@ namespace tl {
     VkDescriptorSetLayout create_descriptor_layout( const VkDescriptorSetLayoutBinding* bindings, uint32_t binding_count );
     VkDescriptorSet       allocate_descriptor_set( VkDescriptorPool pool, VkDescriptorSetLayout layout );
     void                  update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writes, uint32_t write_count );
+
+    // Buffers
+    struct Buffer {
+        VkBuffer          buffer          = VK_NULL_HANDLE;
+        u64               size            = 0;
+        VmaAllocation     allocation      = { };
+        VmaAllocationInfo allocation_info = { };
+        VkDeviceAddress   device_address  = 0;
+        uintptr_t         gpu_data        = 0;
+    };
+
+    Buffer create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
+    void   destroy_buffer( Buffer& buffer );
+    void   upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset = 0 );
 
 
 } // namespace tl

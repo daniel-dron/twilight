@@ -14,6 +14,7 @@
 #pragma once
 
 #include <Volk/volk.h>
+#include <vulkan/vulkan_core.h>
 #include "r_swapchain.h"
 #include "types.h"
 
@@ -49,6 +50,11 @@ namespace tl {
         VkQueue compute_queue         = VK_NULL_HANDLE;
         u32     compute_queue_family  = 0;
 
+        // Commands
+        VkCommandPool   pool;
+        VkCommandBuffer global_cmd;
+        VkFence         global_fence;
+
         // Properties
         VkPhysicalDeviceProperties2       properties        = { };
         VkPhysicalDeviceMemoryProperties2 memory_properties = { };
@@ -63,6 +69,7 @@ namespace tl {
     private:
         void _create_device( const std::string& name, struct SDL_Window* window );
         void _create_frames( );
+        void _create_global_command( );
 
         bool m_validation_layers = false;
     };

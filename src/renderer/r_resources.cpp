@@ -53,7 +53,7 @@ void tl::begin_command( VkCommandBuffer cmd, const VkCommandBufferUsageFlags fla
     VKCALL( vkBeginCommandBuffer( cmd, &info ) );
 }
 
-void tl::submit_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_stage, const VkPipelineStageFlags2 signal_stage, const VkSemaphore wait_semaphore, const VkSemaphore render_semaphore, const VkFence fence ) {
+void tl::submit_graphics_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_stage, const VkPipelineStageFlags2 signal_stage, const VkSemaphore wait_semaphore, const VkSemaphore render_semaphore, const VkFence fence ) {
     const VkCommandBufferSubmitInfo buffer_info{
             .sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
             .pNext         = nullptr,
@@ -89,6 +89,28 @@ void tl::submit_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_s
             .pSignalSemaphoreInfos    = &signal_info };
 
     VKCALL( vkQueueSubmit2( g_ctx.graphics_queue, 1, &info, fence ) );
+}
+
+void tl::submit_command( VkCommandBuffer cmd, VkQueue queue, const VkFence fence ) {
+    const VkCommandBufferSubmitInfo buffer_info{
+            .sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .pNext         = nullptr,
+            .commandBuffer = cmd,
+            .deviceMask    = 0,
+    };
+
+    const VkSubmitInfo2 info{
+            .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+            .pNext                    = nullptr,
+            .flags                    = 0,
+            .waitSemaphoreInfoCount   = 0u,
+            .pWaitSemaphoreInfos      = nullptr,
+            .commandBufferInfoCount   = 1,
+            .pCommandBufferInfos      = &buffer_info,
+            .signalSemaphoreInfoCount = 0,
+            .pSignalSemaphoreInfos    = nullptr };
+
+    VKCALL( vkQueueSubmit2( queue, 1, &info, fence ) );
 }
 
 VkRenderingAttachmentInfo tl::attachment( const VkImageView view, const VkClearValue* clear, const VkImageLayout layout ) {
@@ -199,8 +221,7 @@ void tl::update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writ
                 .descriptorCount = 1,
                 .descriptorType  = write.type };
 
-        if ( write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ||
-             write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) {
+        if ( write.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || write.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) {
             descriptor_writes[i].pBufferInfo = &write.buffer;
         }
         else {
@@ -209,4 +230,60 @@ void tl::update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writ
     }
 
     vkUpdateDescriptorSets( g_ctx.device, write_count, descriptor_writes.data( ), 0, nullptr );
+}
+
+
+Buffer tl::create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
+    assert( size != 0 );
+
+    assert( !map_memory || ( vma_flags & VMA_ALLOCATION_CREATE_MAPPED_BIT ) && "Can't map memory without VMA_ALLOCATION_CREATE_MAPPED_BIT flag" );
+    assert( !get_device_address || ( usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT ) && "Can't get device address without VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT flag" );
+
+    Buffer buffer{ .size = size };
+
+    const VkBufferCreateInfo info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .size  = size,
+            .usage = usage };
+    const VmaAllocationCreateInfo vma_info = {
+            .flags = vma_flags,
+            .usage = vma_usage };
+    VKCALL( vmaCreateBuffer( g_ctx.allocator, &info, &vma_info, &buffer.buffer, &buffer.allocation, &buffer.allocation_info ) );
+
+    if ( map_memory ) {
+        vmaMapMemory( g_ctx.allocator, buffer.allocation, ( void** )&buffer.gpu_data );
+        assert( buffer.gpu_data );
+    }
+
+    if ( get_device_address ) {
+        const VkBufferDeviceAddressInfo address_info = {
+                .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+                .pNext  = nullptr,
+                .buffer = buffer.buffer };
+        buffer.device_address = vkGetBufferDeviceAddress( g_ctx.device, &address_info );
+        assert( buffer.device_address );
+    }
+
+    return buffer;
+}
+
+void tl::destroy_buffer( Buffer& buffer ) {
+    if ( buffer.gpu_data ) {
+        vmaUnmapMemory( g_ctx.allocator, buffer.allocation );
+    }
+
+    vmaDestroyBuffer( g_ctx.allocator, buffer.buffer, buffer.allocation );
+
+    // reset everything
+    buffer = { };
+}
+
+void tl::upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset ) {
+    assert( buffer.gpu_data );
+    assert( size != 0 );
+    assert( size <= buffer.size );
+    assert( data != nullptr );
+
+    memcpy( ( void* )( buffer.gpu_data + offset ), data, size );
 }

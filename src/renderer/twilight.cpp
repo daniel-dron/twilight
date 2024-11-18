@@ -15,9 +15,15 @@
 
 #include <SDL2/SDL_video.h>
 #include <array>
+#include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <pch.h>
 #include "SDL.h"
+#include "assimp/Importer.hpp"
+#include "assimp/postprocess.h"
 #include "glm/ext/matrix_clip_space.hpp"
+#include "r_resources.h"
 #include "renderer/r_resources.h"
 #include "types.h"
 
@@ -39,7 +45,7 @@ void Renderer::Initialize( ) {
     m_camera.near        = 0.001f;
     m_camera.far         = 1000.0f;
     m_camera.fov         = 70.0f;
-    m_camera.position    = glm::vec3( 0.0f, 0.0f, -5.0f );
+    m_camera.position    = glm::vec3( 0.0f, 0.0f, 20.0f );
     m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
 
     m_pipeline.initialize( PipelineConfig{
@@ -50,10 +56,47 @@ void Renderer::Initialize( ) {
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
     } );
+
+    // create global staging buffer (100MB)
+    m_staging_buffer = create_buffer( 1000 * 1000 * 100, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
+
+    m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
+    m_mesh.vertex_buffer = create_buffer( m_mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
+    m_mesh.index_buffer  = create_buffer( m_mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+
+    // upload mesh
+    upload_buffer_data( m_staging_buffer, m_mesh.vertices.data( ), m_mesh.vertex_buffer.size );
+    upload_buffer_data( m_staging_buffer, m_mesh.indices.data( ), m_mesh.index_buffer.size, m_mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
+
+    {
+        auto& cmd = g_ctx.global_cmd;
+        VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
+        VKCALL( vkResetCommandBuffer( cmd, 0 ) );
+        begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
+
+        const VkBufferCopy vertex_copy = {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size      = m_mesh.vertex_buffer.size };
+        const VkBufferCopy index_copy = {
+                .srcOffset = m_mesh.vertex_buffer.size,
+                .dstOffset = 0,
+                .size      = m_mesh.index_buffer.size };
+        vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.vertex_buffer.buffer, 1, &vertex_copy );
+        vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.index_buffer.buffer, 1, &index_copy );
+
+        VKCALL( vkEndCommandBuffer( cmd ) );
+        submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
+        VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
+    }
 }
 
 void Renderer::Shutdown( ) {
     vkDeviceWaitIdle( g_ctx.device );
+
+    destroy_buffer( m_staging_buffer );
+    destroy_buffer( m_mesh.vertex_buffer );
+    destroy_buffer( m_mesh.index_buffer );
 
     m_pipeline.shutdown( );
     g_ctx.shutdown( );
@@ -89,7 +132,7 @@ void Renderer::Run( ) {
 
         // Submit command
         VKCALL( vkEndCommandBuffer( cmd ) );
-        submit_command( cmd, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.swapchain_semaphore, frame.render_semaphore, frame.fence );
+        submit_graphics_command( cmd, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.swapchain_semaphore, frame.render_semaphore, frame.fence );
 
         // Present
         const VkPresentInfoKHR present_info = {
@@ -156,10 +199,50 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     glm::mat4 projection = glm::perspective( m_camera.fov, ( float )width / ( float )height, m_camera.near, m_camera.far );
 
     ScenePushConstants pc{
-            .view       = view,
-            .projection = projection };
+            .view          = view,
+            .projection    = projection,
+            .vertex_buffer = m_mesh.vertex_buffer.device_address };
     vkCmdPushConstants( cmd, m_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
-    vkCmdDraw( cmd, 3, 1, 0, 0 );
+
+    vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
+    vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
 
     vkCmdEndRendering( cmd );
+}
+
+std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name ) {
+    assert( !gltf_path.empty( ) );
+    assert( !mesh_name.empty( ) );
+    assert( std::filesystem::exists( gltf_path ) );
+
+    Assimp::Importer importer;
+    const auto       aiScene = importer.ReadFile( gltf_path, aiProcess_Triangulate );
+
+    for ( size_t i = 0; i < aiScene->mNumMeshes; i++ ) {
+        if ( std::string( aiScene->mMeshes[i]->mName.C_Str( ) ) == mesh_name ) {
+            Mesh mesh;
+            mesh.vertices.clear( );
+            mesh.indices.clear( );
+
+            auto ai_mesh = aiScene->mMeshes[i];
+
+            mesh.vertices.reserve( ai_mesh->mNumVertices );
+            for ( u32 i = 0; i < ai_mesh->mNumVertices; i++ ) {
+                auto vertex = ai_mesh->mVertices[i];
+                mesh.vertices.push_back( { vertex.x, vertex.y, vertex.z } );
+            }
+
+            mesh.indices.reserve( ai_mesh->mNumFaces * 3 );
+            for ( u32 i = 0; i < ai_mesh->mNumFaces; i++ ) {
+                auto& face = ai_mesh->mFaces[i];
+                mesh.indices.emplace_back( face.mIndices[0] );
+                mesh.indices.emplace_back( face.mIndices[1] );
+                mesh.indices.emplace_back( face.mIndices[2] );
+            }
+
+            return mesh;
+        }
+    }
+
+    return std::nullopt;
 }
