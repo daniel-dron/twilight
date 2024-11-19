@@ -71,9 +71,6 @@ void Renderer::Initialize( ) {
     } );
 #endif
 
-    // create global staging buffer (100MB)
-    m_staging_buffer = create_buffer( 1000 * 1000 * 100, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
-
     // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
     // m_mesh               = load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( );
     m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
@@ -84,9 +81,9 @@ void Renderer::Initialize( ) {
     m_mesh.meshlets_buffer = create_buffer( m_mesh.meshlets.size( ) * sizeof( Meshlet ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
 
     // upload mesh
-    upload_buffer_data( m_staging_buffer, m_mesh.vertices.data( ), m_mesh.vertex_buffer.size );
-    upload_buffer_data( m_staging_buffer, m_mesh.indices.data( ), m_mesh.index_buffer.size, m_mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
-    upload_buffer_data( m_staging_buffer, m_mesh.meshlets.data( ), m_mesh.meshlets_buffer.size, m_mesh.vertex_buffer.size + m_mesh.index_buffer.size );
+    upload_buffer_data( g_ctx.staging_buffer, m_mesh.vertices.data( ), m_mesh.vertex_buffer.size );
+    upload_buffer_data( g_ctx.staging_buffer, m_mesh.indices.data( ), m_mesh.index_buffer.size, m_mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
+    upload_buffer_data( g_ctx.staging_buffer, m_mesh.meshlets.data( ), m_mesh.meshlets_buffer.size, m_mesh.vertex_buffer.size + m_mesh.index_buffer.size );
 
     {
         auto& cmd = g_ctx.global_cmd;
@@ -103,15 +100,15 @@ void Renderer::Initialize( ) {
                 .srcOffset = m_mesh.vertex_buffer.size,
                 .dstOffset = 0,
                 .size      = m_mesh.index_buffer.size };
-        vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.vertex_buffer.buffer, 1, &vertex_copy );
-        vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.index_buffer.buffer, 1, &index_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_mesh.vertex_buffer.buffer, 1, &vertex_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_mesh.index_buffer.buffer, 1, &index_copy );
 
         // Copy meshlets
         const VkBufferCopy meshlets_copy = {
                 .srcOffset = m_mesh.vertex_buffer.size + m_mesh.index_buffer.size,
                 .dstOffset = 0,
                 .size      = m_mesh.meshlets_buffer.size };
-        vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.meshlets_buffer.buffer, 1, &meshlets_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_mesh.meshlets_buffer.buffer, 1, &meshlets_copy );
 
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
@@ -122,7 +119,6 @@ void Renderer::Initialize( ) {
 void Renderer::Shutdown( ) {
     vkDeviceWaitIdle( g_ctx.device );
 
-    destroy_buffer( m_staging_buffer );
     destroy_mesh( m_mesh );
 
     m_pipeline.shutdown( );
@@ -264,10 +260,11 @@ void tl::build_meshlets( Mesh& mesh ) {
 
     std::println( "Meshlet count {}", meshlet_count );
 
-    mesh.meshlets_vertices = create_buffer( meshlet_vertices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
-    upload_buffer_data( mesh.meshlets_vertices, meshlet_vertices.data( ), meshlet_vertices.size( ) * sizeof( u32 ) );
-    mesh.meshlets_triangles = create_buffer( meshlet_triangles.size( ) * sizeof( u8 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
-    upload_buffer_data( mesh.meshlets_triangles, meshlet_triangles.data( ), meshlet_triangles.size( ) * sizeof( u8 ) );
+    mesh.meshlets_vertices = create_buffer( meshlet_vertices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    upload_buffer_data( g_ctx.staging_buffer, meshlet_vertices.data( ), meshlet_vertices.size( ) * sizeof( u32 ) );
+
+    mesh.meshlets_triangles = create_buffer( meshlet_triangles.size( ) * sizeof( u8 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    upload_buffer_data( g_ctx.staging_buffer, meshlet_triangles.data( ), meshlet_triangles.size( ) * sizeof( u8 ), meshlet_vertices.size( ) * sizeof( u32 ) );
 
     mesh.meshlets.clear( );
     mesh.meshlets.reserve( meshlet_count );
@@ -283,6 +280,29 @@ void tl::build_meshlets( Mesh& mesh ) {
         meshlet.vertex_offset   = mopt_meshlet.vertex_offset;
 
         mesh.meshlets.push_back( meshlet );
+    }
+
+    {
+        auto& cmd = g_ctx.global_cmd;
+        VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
+        VKCALL( vkResetCommandBuffer( cmd, 0 ) );
+        begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
+
+        // Copy vertex and index buffer
+        const VkBufferCopy vertices_copy = {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size      = mesh.meshlets_vertices.size };
+        const VkBufferCopy triangles_copy = {
+                .srcOffset = mesh.meshlets_vertices.size,
+                .dstOffset = 0,
+                .size      = mesh.meshlets_triangles.size };
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.meshlets_vertices.buffer, 1, &vertices_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.meshlets_triangles.buffer, 1, &triangles_copy );
+
+        VKCALL( vkEndCommandBuffer( cmd ) );
+        submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
+        VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
     }
 }
 

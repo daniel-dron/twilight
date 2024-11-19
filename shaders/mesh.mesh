@@ -5,8 +5,7 @@
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_mesh_shader : require
 
-// TODO local_size_x being 1 is super bad
-layout( local_size_x = 1, local_size_y = 1, local_size_z = 1 ) in;
+layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 layout( triangles, max_vertices = 64, max_primitives = 96 ) out;
 
 struct Vertex {
@@ -67,14 +66,12 @@ void main( ) {
     //             pc.meshlet_triangles.triangles[offset], pc.meshlet_triangles.triangles[offset + 1], pc.meshlet_triangles.triangles[offset + 2] );
     // }
 
-    // TODO: implement this for work group size > 1
-
     uint mid = gl_WorkGroupID.x;
 
     Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 
-    for ( uint i = 0; i < meshlet.vertex_count; i++ ) {
+    for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
         uint   index                      = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
         Vertex v                          = pc.vertex_buffer.vertices[index];
         vec4   pos                        = pc.projection * pc.view * vec4( v.vx, v.vy, v.vz, 1 );
@@ -82,7 +79,7 @@ void main( ) {
         gl_MeshVerticesEXT[i].gl_Position = pos;
     }
 
-    for ( uint i = 0; i < meshlet.triangle_count; i++ ) {
+    for ( uint i = gl_LocalInvocationIndex; i < meshlet.triangle_count; i += gl_WorkGroupSize.x ) {
         gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int( gl_WorkGroupID.x );
         uint offset                            = meshlet.triangle_offset + i * 3;
         gl_PrimitiveTriangleIndicesEXT[i]      = uvec3(

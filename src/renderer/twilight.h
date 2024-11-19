@@ -82,7 +82,6 @@ namespace tl {
         Pipeline m_pipeline;
         Camera   m_camera;
         Mesh     m_mesh;
-        Buffer   m_staging_buffer; // global staging buffer (100MB)
     };
 
     void                build_meshlets( Mesh& mesh );

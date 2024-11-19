@@ -47,12 +47,17 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
     _create_frames( );
     _create_global_command( );
 
+    // create global staging buffer (100MB)
+    staging_buffer = create_buffer( 1000 * 1000 * 100, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
+
     // Swapchain
     swapchain.initialize( width, height, chosen_gpu, device, surface );
 }
 
 void Context::shutdown( ) {
     swapchain.shutdown( device );
+
+    destroy_buffer( staging_buffer );
 
     // shutdown frames
     for ( auto& frame : frames ) {

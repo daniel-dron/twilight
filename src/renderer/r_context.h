@@ -15,6 +15,7 @@
 
 #include <Volk/volk.h>
 #include <vulkan/vulkan_core.h>
+#include "r_resources.h"
 #include "r_swapchain.h"
 #include "types.h"
 
@@ -54,6 +55,7 @@ namespace tl {
         VkCommandPool   pool;
         VkCommandBuffer global_cmd;
         VkFence         global_fence;
+        Buffer          staging_buffer;
 
         // Properties
         VkPhysicalDeviceProperties2       properties        = { };
