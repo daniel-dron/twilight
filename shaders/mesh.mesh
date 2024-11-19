@@ -1,0 +1,93 @@
+#version 460
+
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_mesh_shader : require
+
+// TODO local_size_x being 1 is super bad
+layout( local_size_x = 1, local_size_y = 1, local_size_z = 1 ) in;
+layout( triangles, max_vertices = 64, max_primitives = 96 ) out;
+
+struct Vertex {
+    float vx, vy, vz;
+};
+
+struct Meshlet {
+    uint vertex_offset;
+    uint triangle_offset;
+
+    uint vertex_count;
+    uint triangle_count;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer VertexBuffer {
+    Vertex vertices[];
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletBuffer {
+    Meshlet meshlets[];
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletVertices {
+    uint vertices[];
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletTriangles {
+    uint8_t triangles[];
+};
+
+layout( push_constant, scalar ) uniform PushConstant {
+    mat4             view;
+    mat4             projection;
+    VertexBuffer     vertex_buffer;
+    MeshletBuffer    meshlet_buffer;
+    MeshletVertices  meshlet_vertices;
+    MeshletTriangles meshlet_triangles;
+}
+pc;
+
+layout( location = 0 ) out uint out_primitive_index[];
+
+void main( ) {
+    // This is broken...
+    // Meshlet meshlet = pc.meshlet_buffer.meshlets[gl_WorkGroupID.x];
+    // SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count / 3 );
+
+    // for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
+    //     uint   index                      = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
+    //     Vertex v                          = pc.vertex_buffer.vertices[index];
+    //     gl_MeshVerticesEXT[i].gl_Position = pc.projection * pc.view * vec4( v.vx, v.vy, v.vz, 1 );
+    // }
+
+    // for ( uint i = gl_LocalInvocationIndex; i < meshlet.triangle_count; i += gl_WorkGroupSize.x ) {
+    //     uint offset                            = meshlet.triangle_offset + i * 3;
+    //     gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int( gl_WorkGroupID.x );
+    //     gl_PrimitiveTriangleIndicesEXT[i]      = uvec3(
+    //             pc.meshlet_triangles.triangles[offset], pc.meshlet_triangles.triangles[offset + 1], pc.meshlet_triangles.triangles[offset + 2] );
+    // }
+
+    // TODO: implement this for work group size > 1
+
+    uint mid = gl_WorkGroupID.x;
+
+    Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
+    SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
+
+    for ( uint i = 0; i < meshlet.vertex_count; i++ ) {
+        uint   index                      = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
+        Vertex v                          = pc.vertex_buffer.vertices[index];
+        vec4   pos                        = pc.projection * pc.view * vec4( v.vx, v.vy, v.vz, 1 );
+        out_primitive_index[i]            = int( gl_WorkGroupID.x );
+        gl_MeshVerticesEXT[i].gl_Position = pos;
+    }
+
+    for ( uint i = 0; i < meshlet.triangle_count; i++ ) {
+        gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int( gl_WorkGroupID.x );
+        uint offset                            = meshlet.triangle_offset + i * 3;
+        gl_PrimitiveTriangleIndicesEXT[i]      = uvec3(
+                pc.meshlet_triangles.triangles[offset],
+                pc.meshlet_triangles.triangles[offset + 1],
+                pc.meshlet_triangles.triangles[offset + 2] );
+    }
+}

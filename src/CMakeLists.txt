@@ -60,14 +60,14 @@ target_include_directories(TwilightEngine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # Pre-Compiled Headers for faster compilation
 target_precompile_headers(TwilightEngine PRIVATE pch.h)
 
-# target_link_libraries(TwilightEngine PUBLIC tracy meshoptimizer assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
-target_link_libraries(TwilightEngine PUBLIC tracy assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
+target_link_libraries(TwilightEngine PUBLIC tracy meshoptimizer assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
+# target_link_libraries(TwilightEngine PUBLIC tracy assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
 
 # SHADERS
 set(SHADER_SOURCE_DIR "${PROJECT_SOURCE_DIR}/../shaders")
 set(SHADER_BINARY_DIR "${PROJECT_SOURCE_DIR}/../bin/shaders/")
-file(GLOB_RECURSE GLSL_SHADERS ${SHADER_SOURCE_DIR}/*.vert ${SHADER_SOURCE_DIR}/*.frag ${SHADER_SOURCE_DIR}/*.comp)
-file(GLOB_RECURSE ALL_GLSL_SHADER_FILES ${SHADER_SOURCE_DIR}/*.vert ${SHADER_SOURCE_DIR}/*.frag ${SHADER_SOURCE_DIR}/*.comp ${SHADER_SOURCE_DIR}/*.glsl)
+file(GLOB_RECURSE GLSL_SHADERS ${SHADER_SOURCE_DIR}/*.vert ${SHADER_SOURCE_DIR}/*.frag ${SHADER_SOURCE_DIR}/*.mesh ${SHADER_SOURCE_DIR}/*.comp)
+file(GLOB_RECURSE ALL_GLSL_SHADER_FILES ${SHADER_SOURCE_DIR}/*.vert ${SHADER_SOURCE_DIR}/*.frag ${SHADER_SOURCE_DIR}/*.mesh ${SHADER_SOURCE_DIR}/*.comp ${SHADER_SOURCE_DIR}/*.glsl)
 
 message(STATUS ${ALL_GLSL_SHADER_FILES})
 

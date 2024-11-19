@@ -31,10 +31,23 @@ namespace tl {
         glm::mat4 view;
         glm::mat4 projection;
         u64       vertex_buffer;
+        u64       meshlets_buffer;
+        u64       meshlet_vertices;
+        u64       meshlet_triangles;
     };
 
     struct Vertex {
         f32 vx, vy, vz;
+    };
+
+    const size_t max_vertices  = 64;
+    const size_t max_triangles = 96;
+    struct Meshlet {
+        u32 vertex_offset;
+        u32 triangle_offset;
+
+        u32 vertex_count;
+        u32 triangle_count;
     };
 
     struct Mesh {
@@ -42,6 +55,11 @@ namespace tl {
         std::vector<u32>    indices;
         Buffer              vertex_buffer;
         Buffer              index_buffer;
+
+        std::vector<Meshlet> meshlets;
+        Buffer               meshlets_buffer;
+        Buffer               meshlets_vertices;
+        Buffer               meshlets_triangles;
     };
 
     class Renderer {
@@ -67,6 +85,8 @@ namespace tl {
         Buffer   m_staging_buffer; // global staging buffer (100MB)
     };
 
+    void                build_meshlets( Mesh& mesh );
     std::optional<Mesh> load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name );
+    void                destroy_mesh( Mesh& mesh );
 
 } // namespace tl

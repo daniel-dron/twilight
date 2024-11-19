@@ -34,7 +34,7 @@ add_subdirectory(assimp EXCLUDE_FROM_ALL)
 add_subdirectory(fmt EXCLUDE_FROM_ALL)
 
 # Meshoptimizer
-# add_subdirectory(meshoptimizer)
+add_subdirectory(meshoptimizer)
 
 # GLM
 add_library(glm INTERFACE)
@@ -70,5 +70,4 @@ target_compile_definitions(tracy PUBLIC TRACY_ENABLE)
 target_include_directories(tracy PUBLIC tracy)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-# set_target_properties(sdl_headers_copy tracy meshoptimizer assimp glm vma fmt imgui SDL2 vkbootstrap volk PROPERTIES FOLDER Dependencies)
-set_target_properties(sdl_headers_copy tracy assimp glm vma fmt imgui SDL2 vkbootstrap volk PROPERTIES FOLDER Dependencies)
+set_target_properties(sdl_headers_copy tracy meshoptimizer assimp glm vma fmt imgui SDL2 vkbootstrap volk PROPERTIES FOLDER Dependencies)

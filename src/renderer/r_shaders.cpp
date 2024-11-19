@@ -90,26 +90,44 @@ void Pipeline::initialize( const PipelineConfig& config ) {
         vkDestroyShaderModule( g_ctx.device, compute, nullptr );
     }
     else {
-        const auto vertex = load_shader_module( config.vertex );
-        const auto pixel  = load_shader_module( config.pixel );
-        assert( vertex != VK_NULL_HANDLE && "Could not find vertex shader" );
+        const auto pixel = load_shader_module( config.pixel );
         assert( pixel != VK_NULL_HANDLE && "Could not find pixel shader" );
 
-        std::array shader_stages_info = {
-                VkPipelineShaderStageCreateInfo{ .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                 .pNext               = nullptr,
-                                                 .flags               = 0,
-                                                 .stage               = VK_SHADER_STAGE_VERTEX_BIT,
-                                                 .module              = vertex,
-                                                 .pName               = "main",
-                                                 .pSpecializationInfo = nullptr },
-                VkPipelineShaderStageCreateInfo{ .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                 .pNext               = nullptr,
-                                                 .flags               = 0,
-                                                 .stage               = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                 .module              = pixel,
-                                                 .pName               = "main",
-                                                 .pSpecializationInfo = nullptr } };
+        VkShaderModule vertex, mesh;
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages_info;
+        shader_stages_info[1] = VkPipelineShaderStageCreateInfo{ .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                                 .pNext               = nullptr,
+                                                                 .flags               = 0,
+                                                                 .stage               = VK_SHADER_STAGE_FRAGMENT_BIT,
+                                                                 .module              = pixel,
+                                                                 .pName               = "main",
+                                                                 .pSpecializationInfo = nullptr };
+
+        if ( config.vertex ) {
+            vertex = load_shader_module( config.vertex );
+            assert( vertex != VK_NULL_HANDLE && "Could not find vertex shader" );
+
+            shader_stages_info[0] = VkPipelineShaderStageCreateInfo{ .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                                     .pNext               = nullptr,
+                                                                     .flags               = 0,
+                                                                     .stage               = VK_SHADER_STAGE_VERTEX_BIT,
+                                                                     .module              = vertex,
+                                                                     .pName               = "main",
+                                                                     .pSpecializationInfo = nullptr };
+        }
+        else if ( config.mesh ) {
+            mesh = load_shader_module( config.mesh );
+            assert( mesh != VK_NULL_HANDLE && "Could not find mesh shader" );
+
+            shader_stages_info[0] = VkPipelineShaderStageCreateInfo{ .sType               = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                                     .pNext               = nullptr,
+                                                                     .flags               = 0,
+                                                                     .stage               = VK_SHADER_STAGE_MESH_BIT_EXT,
+                                                                     .module              = mesh,
+                                                                     .pName               = "main",
+                                                                     .pSpecializationInfo = nullptr };
+        }
 
         std::vector<VkFormat>                            color_formats;
         std::vector<VkPipelineColorBlendAttachmentState> blend_attachments;
@@ -142,10 +160,7 @@ void Pipeline::initialize( const PipelineConfig& config ) {
                 .attachmentCount = static_cast<uint32_t>( blend_attachments.size( ) ),
                 .pAttachments    = blend_attachments.size( ) == 0 ? nullptr : blend_attachments.data( ) };
 
-        // This project used device address for vertex buffers, so we don't really need to configribe anything for
-        // vertex input stage
-        VkPipelineVertexInputStateCreateInfo vertex_info = {
-                .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+        VkPipelineVertexInputStateCreateInfo vertex_info = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 
         // We use dynamic state for scissor and viewport. This, together with dynamic rendering, makes it really
         // nice and simple to use modern vulkan
@@ -228,7 +243,12 @@ void Pipeline::initialize( const PipelineConfig& config ) {
         }
 
         // We no longer need the shader modules
-        vkDestroyShaderModule( g_ctx.device, vertex, nullptr );
+        if ( config.vertex ) {
+            vkDestroyShaderModule( g_ctx.device, vertex, nullptr );
+        }
+        else {
+            vkDestroyShaderModule( g_ctx.device, mesh, nullptr );
+        }
         vkDestroyShaderModule( g_ctx.device, pixel, nullptr );
     }
 }

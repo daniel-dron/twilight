@@ -124,12 +124,15 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     // Physical device
     VkPhysicalDeviceVulkan13Features features_13{ .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
                                                   .synchronization2 = true,
-                                                  .dynamicRendering = true };
+                                                  .dynamicRendering = true,
+                                                  .maintenance4     = true };
     VkPhysicalDeviceVulkan12Features features_12{
-            .sType               = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-            .bufferDeviceAddress = true };
+            .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+            .storageBuffer8BitAccess = true,
+            .bufferDeviceAddress     = true };
     VkPhysicalDeviceVulkan11Features features_11{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
     VkPhysicalDeviceFeatures         features{ };
+
 
     PhysicalDeviceSelector selector{ instance };
 
@@ -138,6 +141,7 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
                                    .set_required_features_12( features_12 )
                                    .set_required_features_11( features_11 )
                                    .set_required_features( features )
+                                   .add_required_extension( VK_EXT_MESH_SHADER_EXTENSION_NAME )
                                    .set_surface( this->surface )
                                    .select( );
     assert( physical_device.has_value( ) );
@@ -153,8 +157,13 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     this->memory_properties = memory_properties;
 
     // Device
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{
+            .sType      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+            .meshShader = VK_TRUE };
+
     DeviceBuilder device_builder{ physical_device.value( ) };
-    auto          device = device_builder.build( );
+    device_builder.add_pNext( &mesh_features );
+    auto device = device_builder.build( );
     assert( device.has_value( ) );
     this->device = device->device;
     volkLoadDevice( this->device );

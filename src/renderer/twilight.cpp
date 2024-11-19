@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <meshoptimizer.h>
 #include <optional>
 #include <pch.h>
 #include "SDL.h"
@@ -31,6 +32,8 @@
 #include <renderer/r_shaders.h>
 #include <vulkan/vulkan_core.h>
 
+#define MESH 1
+
 using namespace tl;
 
 void Renderer::Initialize( ) {
@@ -43,30 +46,47 @@ void Renderer::Initialize( ) {
     g_ctx.initialize( width, height, "Twilight", m_window );
 
     m_camera.near        = 0.001f;
-    m_camera.far         = 1000.0f;
+    m_camera.far         = 5000.0f;
     m_camera.fov         = 70.0f;
-    m_camera.position    = glm::vec3( 0.0f, 0.0f, 20.0f );
+    m_camera.position    = glm::vec3( 600.0f, 500.0f, 1000.0f );
     m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
 
+#if MESH
+    m_pipeline.initialize( PipelineConfig{
+            .name                 = "mesh",
+            .pixel                = "../shaders/mesh.frag.spv",
+            .mesh                 = "../shaders/mesh.mesh.spv",
+            .cull_mode            = VK_CULL_MODE_BACK_BIT,
+            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
+    } );
+#else
     m_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
             .vertex               = "../shaders/mesh.vert.spv",
             .pixel                = "../shaders/mesh.frag.spv",
-            .cull_mode            = VK_CULL_MODE_NONE,
+            .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
-            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
+#endif
 
     // create global staging buffer (100MB)
     m_staging_buffer = create_buffer( 1000 * 1000 * 100, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
 
-    m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
+    // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
+    // m_mesh               = load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( );
+    m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
     m_mesh.vertex_buffer = create_buffer( m_mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
     m_mesh.index_buffer  = create_buffer( m_mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+
+    build_meshlets( m_mesh );
+    m_mesh.meshlets_buffer = create_buffer( m_mesh.meshlets.size( ) * sizeof( Meshlet ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
 
     // upload mesh
     upload_buffer_data( m_staging_buffer, m_mesh.vertices.data( ), m_mesh.vertex_buffer.size );
     upload_buffer_data( m_staging_buffer, m_mesh.indices.data( ), m_mesh.index_buffer.size, m_mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
+    upload_buffer_data( m_staging_buffer, m_mesh.meshlets.data( ), m_mesh.meshlets_buffer.size, m_mesh.vertex_buffer.size + m_mesh.index_buffer.size );
 
     {
         auto& cmd = g_ctx.global_cmd;
@@ -74,6 +94,7 @@ void Renderer::Initialize( ) {
         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
+        // Copy vertex and index buffer
         const VkBufferCopy vertex_copy = {
                 .srcOffset = 0,
                 .dstOffset = 0,
@@ -85,6 +106,13 @@ void Renderer::Initialize( ) {
         vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.vertex_buffer.buffer, 1, &vertex_copy );
         vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.index_buffer.buffer, 1, &index_copy );
 
+        // Copy meshlets
+        const VkBufferCopy meshlets_copy = {
+                .srcOffset = m_mesh.vertex_buffer.size + m_mesh.index_buffer.size,
+                .dstOffset = 0,
+                .size      = m_mesh.meshlets_buffer.size };
+        vkCmdCopyBuffer( cmd, m_staging_buffer.buffer, m_mesh.meshlets_buffer.buffer, 1, &meshlets_copy );
+
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
@@ -95,8 +123,7 @@ void Renderer::Shutdown( ) {
     vkDeviceWaitIdle( g_ctx.device );
 
     destroy_buffer( m_staging_buffer );
-    destroy_buffer( m_mesh.vertex_buffer );
-    destroy_buffer( m_mesh.index_buffer );
+    destroy_mesh( m_mesh );
 
     m_pipeline.shutdown( );
     g_ctx.shutdown( );
@@ -199,15 +226,64 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     glm::mat4 projection = glm::perspective( m_camera.fov, ( float )width / ( float )height, m_camera.near, m_camera.far );
 
     ScenePushConstants pc{
-            .view          = view,
-            .projection    = projection,
-            .vertex_buffer = m_mesh.vertex_buffer.device_address };
-    vkCmdPushConstants( cmd, m_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
+            .view              = view,
+            .projection        = projection,
+            .vertex_buffer     = m_mesh.vertex_buffer.device_address,
+            .meshlets_buffer   = m_mesh.meshlets_buffer.device_address,
+            .meshlet_vertices  = m_mesh.meshlets_vertices.device_address,
+            .meshlet_triangles = m_mesh.meshlets_triangles.device_address };
+    vkCmdPushConstants( cmd, m_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
 
+#if MESH
+    vkCmdDrawMeshTasksEXT( cmd, m_mesh.meshlets.size( ), 1, 1 );
+#else
     vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
     vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
+#endif
 
     vkCmdEndRendering( cmd );
+}
+
+void tl::build_meshlets( Mesh& mesh ) {
+    size_t                       max_meshlets = meshopt_buildMeshletsBound( mesh.indices.size( ), max_vertices, max_triangles );
+    std::vector<meshopt_Meshlet> meshlets( max_meshlets );
+    std::vector<unsigned int>    meshlet_vertices( max_meshlets * max_vertices );
+    std::vector<unsigned char>   meshlet_triangles( max_meshlets * max_triangles * 3 );
+
+    size_t meshlet_count = meshopt_buildMeshlets(
+            meshlets.data( ),
+            meshlet_vertices.data( ),
+            meshlet_triangles.data( ),
+            mesh.indices.data( ),
+            mesh.indices.size( ),
+            &mesh.vertices[0].vx,
+            mesh.vertices.size( ),
+            sizeof( Vertex ),
+            max_vertices,
+            max_triangles, 0.0f );
+
+    std::println( "Meshlet count {}", meshlet_count );
+
+    mesh.meshlets_vertices = create_buffer( meshlet_vertices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
+    upload_buffer_data( mesh.meshlets_vertices, meshlet_vertices.data( ), meshlet_vertices.size( ) * sizeof( u32 ) );
+    mesh.meshlets_triangles = create_buffer( meshlet_triangles.size( ) * sizeof( u8 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
+    upload_buffer_data( mesh.meshlets_triangles, meshlet_triangles.data( ), meshlet_triangles.size( ) * sizeof( u8 ) );
+
+    mesh.meshlets.clear( );
+    mesh.meshlets.reserve( meshlet_count );
+
+    for ( u32 i = 0; i < meshlet_count; i++ ) {
+        auto& mopt_meshlet = meshlets[i];
+        meshopt_optimizeMeshlet( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, mopt_meshlet.vertex_count );
+
+        Meshlet meshlet{ };
+        meshlet.triangle_count  = mopt_meshlet.triangle_count;
+        meshlet.vertex_count    = mopt_meshlet.vertex_count;
+        meshlet.triangle_offset = mopt_meshlet.triangle_offset;
+        meshlet.vertex_offset   = mopt_meshlet.vertex_offset;
+
+        mesh.meshlets.push_back( meshlet );
+    }
 }
 
 std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name ) {
@@ -245,4 +321,12 @@ std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const
     }
 
     return std::nullopt;
+}
+
+void tl::destroy_mesh( Mesh& mesh ) {
+    destroy_buffer( mesh.vertex_buffer );
+    destroy_buffer( mesh.index_buffer );
+    destroy_buffer( mesh.meshlets_buffer );
+    destroy_buffer( mesh.meshlets_vertices );
+    destroy_buffer( mesh.meshlets_triangles );
 }

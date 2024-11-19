@@ -18,9 +18,11 @@ layout( push_constant, scalar ) uniform PushConstant {
 }
 pc;
 
-void main( ) {
-    Vertex vertex   = pc.vertex_buffer.vertices[gl_VertexIndex];
-    vec4   position = pc.projection * pc.view * vec4( vertex.vx, vertex.vy, vertex.vz, 1.0f );
+layout( location = 0 ) out uint out_primitive_index;
 
-    gl_Position = position;
+void main( ) {
+    Vertex vertex       = pc.vertex_buffer.vertices[gl_VertexIndex];
+    vec4   position     = pc.projection * pc.view * vec4( vertex.vx, vertex.vy, vertex.vz, 1.0f );
+    out_primitive_index = int( gl_VertexIndex );
+    gl_Position         = position;
 }
