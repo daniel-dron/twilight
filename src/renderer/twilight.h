@@ -79,7 +79,12 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
+        u64 m_frame_triangles = 0; // how many triangles were drawn this frame
+
+        bool m_use_mesh_pipeline = true;
+
         Pipeline m_pipeline;
+        Pipeline m_mesh_pipeline;
         Camera   m_camera;
         Mesh     m_mesh;
     };

@@ -33,6 +33,12 @@ T* PtrTo( T&& v ) {
     return &v;
 }
 
+inline f64 get_time( ) {
+    static auto start_time = std::chrono::high_resolution_clock::now( );
+    const auto  now        = std::chrono::high_resolution_clock::now( );
+    return std::chrono::duration<double>( now - start_time ).count( );
+}
+
 #ifndef NDEBUG
 #define DEBUG
 #include <vulkan/vk_enum_string_helper.h>

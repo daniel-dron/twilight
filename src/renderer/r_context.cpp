@@ -65,6 +65,7 @@ void Context::shutdown( ) {
         vkDestroySemaphore( device, frame.swapchain_semaphore, nullptr );
         vkDestroySemaphore( device, frame.render_semaphore, nullptr );
         vkDestroyFence( device, frame.fence, nullptr );
+        vkDestroyQueryPool( device, frame.query_pool_timestamps, nullptr );
     }
 
     vkDestroyCommandPool( device, pool, nullptr );
@@ -134,6 +135,7 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     VkPhysicalDeviceVulkan12Features features_12{
             .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .storageBuffer8BitAccess = true,
+            .hostQueryReset          = true,
             .bufferDeviceAddress     = true };
     VkPhysicalDeviceVulkan11Features features_11{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
     VkPhysicalDeviceFeatures         features{ };
@@ -220,6 +222,15 @@ void Context::_create_frames( ) {
         frame.fence               = create_fence( VK_FENCE_CREATE_SIGNALED_BIT );
         frame.swapchain_semaphore = create_semaphore( );
         frame.render_semaphore    = create_semaphore( );
+
+        // Create timer pools
+        VkQueryPoolCreateInfo query_pool_info = {
+                .sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+                .pNext      = nullptr,
+                .queryType  = VK_QUERY_TYPE_TIMESTAMP,
+                .queryCount = u32( frame.gpu_timestamps.size( ) ) };
+        VKCALL( vkCreateQueryPool( device, &query_pool_info, nullptr, &frame.query_pool_timestamps ) );
+        vkResetQueryPool( device, frame.query_pool_timestamps, 0, frame.gpu_timestamps.size( ) );
     }
 }
 

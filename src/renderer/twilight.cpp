@@ -17,10 +17,14 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <meshoptimizer.h>
 #include <optional>
 #include <pch.h>
 #include "SDL.h"
+#include "SDL_events.h"
+#include "SDL_scancode.h"
+#include "SDL_timer.h"
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
 #include "glm/ext/matrix_clip_space.hpp"
@@ -32,7 +36,7 @@
 #include <renderer/r_shaders.h>
 #include <vulkan/vulkan_core.h>
 
-#define MESH 1
+#define MESH 0
 
 using namespace tl;
 
@@ -51,8 +55,7 @@ void Renderer::Initialize( ) {
     m_camera.position    = glm::vec3( 600.0f, 500.0f, 1000.0f );
     m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
 
-#if MESH
-    m_pipeline.initialize( PipelineConfig{
+    m_mesh_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
             .pixel                = "../shaders/mesh.frag.spv",
             .mesh                 = "../shaders/mesh.mesh.spv",
@@ -60,7 +63,6 @@ void Renderer::Initialize( ) {
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
-#else
     m_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
             .vertex               = "../shaders/mesh.vert.spv",
@@ -69,7 +71,6 @@ void Renderer::Initialize( ) {
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
-#endif
 
     // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
     // m_mesh               = load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( );
@@ -122,12 +123,19 @@ void Renderer::Shutdown( ) {
     destroy_mesh( m_mesh );
 
     m_pipeline.shutdown( );
+    m_mesh_pipeline.shutdown( );
     g_ctx.shutdown( );
     SDL_DestroyWindow( m_window );
 }
 
 void Renderer::Run( ) {
+    f64 avg_cpu_time = 0;
+    f64 avg_gpu_time = 0;
+
     while ( !m_quit ) {
+        m_frame_triangles   = 0;
+        auto cpu_time_start = get_time( );
+
         process_events( );
 
         auto& frame               = g_ctx.get_current_frame( );
@@ -140,10 +148,12 @@ void Renderer::Run( ) {
         VKCALL( vkWaitForFences( g_ctx.device, 1, &frame.fence, true, UINT64_MAX ) );
         VKCALL( vkResetFences( g_ctx.device, 1, &frame.fence ) );
         VKCALL( vkAcquireNextImageKHR( g_ctx.device, g_ctx.swapchain.swapchain, UINT64_MAX, frame.swapchain_semaphore, nullptr, &swapchain_image_idx ) );
+        vkResetQueryPool( g_ctx.device, frame.query_pool_timestamps, 0, frame.gpu_timestamps.size( ) );
 
         // Start command
         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
+        vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 0 );
 
         image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -153,6 +163,7 @@ void Renderer::Run( ) {
                        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR );
 
+        vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, 1 );
         // Submit command
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_graphics_command( cmd, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame.swapchain_semaphore, frame.render_semaphore, frame.fence );
@@ -168,7 +179,19 @@ void Renderer::Run( ) {
                 .pImageIndices      = &swapchain_image_idx };
         VKCALL( vkQueuePresentKHR( g_ctx.graphics_queue, &present_info ) );
 
+        // Timers
+        vkGetQueryPoolResults( g_ctx.device, frame.query_pool_timestamps, 0, u32( frame.gpu_timestamps.size( ) ), frame.gpu_timestamps.size( ) * sizeof( u64 ), frame.gpu_timestamps.data( ), sizeof( u64 ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
+
         g_ctx.current_frame++;
+        auto cpu_time_end = get_time( );
+
+        avg_cpu_time = avg_cpu_time * 0.95 + ( ( cpu_time_end - cpu_time_start ) * 1000.0f ) * 0.05;
+        avg_gpu_time = avg_gpu_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[0], frame.gpu_timestamps[1] ) ) * 0.05f;
+
+        f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
+
+        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; triangles {:.2f}M; {:.1f}B; pipeline: {}", avg_cpu_time, avg_gpu_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, ( m_use_mesh_pipeline ? "meshlet" : "buffer" ) );
+        SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
 
@@ -184,6 +207,12 @@ void Renderer::process_events( ) {
                 this->width  = event.window.data1;
                 this->height = event.window.data2;
                 g_ctx.swapchain.resize( event.window.data1, event.window.data2, g_ctx.chosen_gpu, g_ctx.device, g_ctx.surface );
+            }
+        }
+
+        if ( event.type == SDL_KEYDOWN ) {
+            if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
+                m_use_mesh_pipeline = !m_use_mesh_pipeline;
             }
         }
     }
@@ -213,7 +242,8 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .extent = { .width = width, .height = height } };
     vkCmdSetScissor( cmd, 0, 1, &scissor );
 
-    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline.pipeline );
+    Pipeline& pipeline = m_use_mesh_pipeline ? m_mesh_pipeline : m_pipeline;
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline );
 
     // Camera matrices
     glm::mat4 view       = glm::mat4_cast( m_camera.orientation );
@@ -228,14 +258,21 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .meshlets_buffer   = m_mesh.meshlets_buffer.device_address,
             .meshlet_vertices  = m_mesh.meshlets_vertices.device_address,
             .meshlet_triangles = m_mesh.meshlets_triangles.device_address };
-    vkCmdPushConstants( cmd, m_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
+    vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
 
-#if MESH
-    vkCmdDrawMeshTasksEXT( cmd, m_mesh.meshlets.size( ), 1, 1 );
-#else
-    vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
-    vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
-#endif
+
+    if ( m_use_mesh_pipeline ) {
+        for ( auto& meshlet : m_mesh.meshlets ) {
+            m_frame_triangles += meshlet.triangle_count;
+        }
+
+        vkCmdDrawMeshTasksEXT( cmd, u32( m_mesh.meshlets.size( ) ), 1, 1 );
+    }
+    else {
+        vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
+        vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
+        m_frame_triangles += m_mesh.indices.size( ) / 3;
+    }
 
     vkCmdEndRendering( cmd );
 }

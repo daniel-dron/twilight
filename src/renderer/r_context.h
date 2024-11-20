@@ -27,6 +27,9 @@ namespace tl {
         VkSemaphore     swapchain_semaphore;
         VkSemaphore     render_semaphore;
         VkFence         fence;
+
+        VkQueryPool        query_pool_timestamps = VK_NULL_HANDLE;
+        std::array<u64, 2> gpu_timestamps        = { 0 };
     };
 
     struct Context {
@@ -67,6 +70,12 @@ namespace tl {
         u32                                  current_frame = 0;
         static constexpr u32                 frame_overlap = 2;
         std::array<FrameData, frame_overlap> frames;
+
+
+        inline f64 get_query_time_in_ms( u64 start, u64 end ) const {
+            const auto period = properties.properties.limits.timestampPeriod;
+            return ( end - start ) * period / 1000000.0f;
+        }
 
     private:
         void _create_device( const std::string& name, struct SDL_Window* window );
