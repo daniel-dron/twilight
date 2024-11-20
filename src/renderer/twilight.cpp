@@ -24,7 +24,6 @@
 #include "SDL.h"
 #include "SDL_events.h"
 #include "SDL_scancode.h"
-#include "SDL_timer.h"
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
 #include "glm/ext/matrix_clip_space.hpp"
@@ -35,8 +34,6 @@
 #include <renderer/r_context.h>
 #include <renderer/r_shaders.h>
 #include <vulkan/vulkan_core.h>
-
-#define MESH 0
 
 using namespace tl;
 
@@ -60,6 +57,7 @@ void Renderer::Initialize( ) {
             .pixel                = "../shaders/mesh.frag.spv",
             .mesh                 = "../shaders/mesh.mesh.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
+            .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
@@ -68,6 +66,7 @@ void Renderer::Initialize( ) {
             .vertex               = "../shaders/mesh.vert.spv",
             .pixel                = "../shaders/mesh.frag.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
+            .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
@@ -254,6 +253,7 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     ScenePushConstants pc{
             .view              = view,
             .projection        = projection,
+            .camera_position   = glm::vec4( m_camera.position, 1.0f ),
             .vertex_buffer     = m_mesh.vertex_buffer.device_address,
             .meshlets_buffer   = m_mesh.meshlets_buffer.device_address,
             .meshlet_vertices  = m_mesh.meshlets_vertices.device_address,
@@ -293,7 +293,7 @@ void tl::build_meshlets( Mesh& mesh ) {
             mesh.vertices.size( ),
             sizeof( Vertex ),
             max_vertices,
-            max_triangles, 0.0f );
+            max_triangles, 0.5f );
 
     std::println( "Meshlet count {}", meshlet_count );
 
@@ -309,12 +309,23 @@ void tl::build_meshlets( Mesh& mesh ) {
     for ( u32 i = 0; i < meshlet_count; i++ ) {
         auto& mopt_meshlet = meshlets[i];
         meshopt_optimizeMeshlet( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, mopt_meshlet.vertex_count );
+        auto bounds = meshopt_computeMeshletBounds( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, &mesh.vertices[0].vx, mesh.vertices.size( ), sizeof( Vertex ) );
 
         Meshlet meshlet{ };
         meshlet.triangle_count  = mopt_meshlet.triangle_count;
         meshlet.vertex_count    = mopt_meshlet.vertex_count;
         meshlet.triangle_offset = mopt_meshlet.triangle_offset;
         meshlet.vertex_offset   = mopt_meshlet.vertex_offset;
+
+        meshlet.cone_apex[0] = bounds.cone_apex[0];
+        meshlet.cone_apex[1] = bounds.cone_apex[1];
+        meshlet.cone_apex[2] = bounds.cone_apex[2];
+
+        meshlet.cone_axis[0] = bounds.cone_axis[0];
+        meshlet.cone_axis[1] = bounds.cone_axis[1];
+        meshlet.cone_axis[2] = bounds.cone_axis[2];
+
+        meshlet.cone_cutoff = bounds.cone_cutoff;
 
         mesh.meshlets.push_back( meshlet );
     }

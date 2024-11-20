@@ -15,9 +15,12 @@ struct Vertex {
 struct Meshlet {
     uint vertex_offset;
     uint triangle_offset;
-
     uint vertex_count;
     uint triangle_count;
+
+    float cone_apex[3];
+    float cone_axis[3];
+    float cone_cutoff;
 };
 
 layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer VertexBuffer {
@@ -39,6 +42,7 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer M
 layout( push_constant, scalar ) uniform PushConstant {
     mat4             view;
     mat4             projection;
+    vec4             camera_position;
     VertexBuffer     vertex_buffer;
     MeshletBuffer    meshlet_buffer;
     MeshletVertices  meshlet_vertices;
@@ -48,27 +52,28 @@ pc;
 
 layout( location = 0 ) out uint out_primitive_index[];
 
+bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff ) {
+    float dot_product = dot( view_direction, cone_axis );
+    return dot_product >= cone_cutoff;
+}
+
 void main( ) {
-    // This is broken...
-    // Meshlet meshlet = pc.meshlet_buffer.meshlets[gl_WorkGroupID.x];
-    // SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count / 3 );
-
-    // for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
-    //     uint   index                      = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
-    //     Vertex v                          = pc.vertex_buffer.vertices[index];
-    //     gl_MeshVerticesEXT[i].gl_Position = pc.projection * pc.view * vec4( v.vx, v.vy, v.vz, 1 );
-    // }
-
-    // for ( uint i = gl_LocalInvocationIndex; i < meshlet.triangle_count; i += gl_WorkGroupSize.x ) {
-    //     uint offset                            = meshlet.triangle_offset + i * 3;
-    //     gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int( gl_WorkGroupID.x );
-    //     gl_PrimitiveTriangleIndicesEXT[i]      = uvec3(
-    //             pc.meshlet_triangles.triangles[offset], pc.meshlet_triangles.triangles[offset + 1], pc.meshlet_triangles.triangles[offset + 2] );
-    // }
-
     uint mid = gl_WorkGroupID.x;
 
     Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
+
+    vec3 view_direction = normalize( vec3( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2] ) - pc.camera_position.xyz );
+    vec3 cone_axis      = vec3( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2] );
+    if ( cone_cull( view_direction, cone_axis, meshlet.cone_cutoff ) ) {
+
+        // in the first invocation for this meshlet, if we deduce that its gonna be culled, we need to set the output parameters to 0
+        if ( gl_LocalInvocationIndex == 0 ) {
+            SetMeshOutputsEXT( 0, 0 );
+        }
+
+        return;
+    }
+
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 
     for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {

@@ -30,6 +30,7 @@ namespace tl {
     struct ScenePushConstants {
         glm::mat4 view;
         glm::mat4 projection;
+        glm::vec4 camera_position;
         u64       vertex_buffer;
         u64       meshlets_buffer;
         u64       meshlet_vertices;
@@ -45,9 +46,13 @@ namespace tl {
     struct Meshlet {
         u32 vertex_offset;
         u32 triangle_offset;
-
         u32 vertex_count;
         u32 triangle_count;
+
+        // backface culling
+        f32 cone_apex[3];
+        f32 cone_axis[3];
+        f32 cone_cutoff;
     };
 
     struct Mesh {

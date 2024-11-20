@@ -14,6 +14,7 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer V
 layout( push_constant, scalar ) uniform PushConstant {
     mat4         view;
     mat4         projection;
+    vec4         camera_position;
     VertexBuffer vertex_buffer;
 }
 pc;
