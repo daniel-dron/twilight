@@ -57,10 +57,11 @@ void Renderer::Initialize( ) {
             .name                 = "mesh",
             .pixel                = "../shaders/mesh.frag.spv",
             .mesh                 = "../shaders/mesh.mesh.spv",
+            .task                 = "../shaders/mesh.task.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
-            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
     m_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
@@ -69,7 +70,7 @@ void Renderer::Initialize( ) {
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
-            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
     } );
 
     // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
@@ -258,19 +259,22 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .vertex_buffer     = m_mesh.vertex_buffer.device_address,
             .meshlets_buffer   = m_mesh.meshlets_buffer.device_address,
             .meshlet_vertices  = m_mesh.meshlets_vertices.device_address,
-            .meshlet_triangles = m_mesh.meshlets_triangles.device_address };
-    vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
+            .meshlet_triangles = m_mesh.meshlets_triangles.device_address,
+            .meshlet_count     = u32( m_mesh.meshlets.size( ) ) };
 
     if ( m_use_mesh_pipeline ) {
+        vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
         for ( auto i = 0; i < 100; i++ ) {
             for ( auto& meshlet : m_mesh.meshlets ) {
                 m_frame_triangles += meshlet.triangle_count;
             }
 
-            vkCmdDrawMeshTasksEXT( cmd, u32( m_mesh.meshlets.size( ) ), 1, 1 );
+            auto n = m_mesh.meshlets.size( ) / 32;
+            vkCmdDrawMeshTasksEXT( cmd, n, 1, 1 );
         }
     }
     else {
+        vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
         vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
         for ( auto i = 0; i < 100; i++ ) {
             vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );

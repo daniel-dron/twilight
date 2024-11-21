@@ -47,32 +47,22 @@ layout( push_constant, scalar ) uniform PushConstant {
     MeshletBuffer    meshlet_buffer;
     MeshletVertices  meshlet_vertices;
     MeshletTriangles meshlet_triangles;
+    uint             meshlet_count;
 }
 pc;
 
 layout( location = 0 ) out uint out_primitive_index[];
 
-bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff ) {
-    float dot_product = dot( view_direction, cone_axis );
-    return dot_product >= cone_cutoff;
-}
+struct MeshTaskPayload {
+    uint meshlet_indices[32];
+};
+taskPayloadSharedEXT MeshTaskPayload payload;
 
 void main( ) {
-    uint mid = gl_WorkGroupID.x;
+    uint mid = payload.meshlet_indices[gl_WorkGroupID.x];
 
     Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
 
-    vec3 view_direction = normalize( vec3( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2] ) - pc.camera_position.xyz );
-    vec3 cone_axis      = vec3( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2] );
-    if ( cone_cull( view_direction, cone_axis, meshlet.cone_cutoff ) ) {
-
-        // in the first invocation for this meshlet, if we deduce that its gonna be culled, we need to set the output parameters to 0
-        if ( gl_LocalInvocationIndex == 0 ) {
-            SetMeshOutputsEXT( 0, 0 );
-        }
-
-        return;
-    }
 
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 

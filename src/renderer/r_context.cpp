@@ -138,7 +138,9 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
             .hostQueryReset          = true,
             .bufferDeviceAddress     = true };
     VkPhysicalDeviceVulkan11Features features_11{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
-    VkPhysicalDeviceFeatures         features{ };
+    VkPhysicalDeviceFeatures         features{
+                    .shaderInt64 = VK_TRUE,
+    };
 
 
     PhysicalDeviceSelector selector{ instance };
@@ -166,6 +168,7 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     // Device
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{
             .sType      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+            .taskShader = VK_TRUE,
             .meshShader = VK_TRUE };
 
     DeviceBuilder device_builder{ physical_device.value( ) };

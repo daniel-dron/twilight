@@ -35,6 +35,7 @@ namespace tl {
         u64       meshlets_buffer;
         u64       meshlet_vertices;
         u64       meshlet_triangles;
+        u32       meshlet_count;
     };
 
     struct Vertex {
@@ -42,7 +43,7 @@ namespace tl {
     };
 
     const size_t max_vertices  = 64;
-    const size_t max_triangles = 126;
+    const size_t max_triangles = 124;
     struct Meshlet {
         u32 vertex_offset;
         u32 triangle_offset;

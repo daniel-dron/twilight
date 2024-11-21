@@ -1,0 +1,76 @@
+#version 460
+
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_mesh_shader : require
+#extension GL_ARB_gpu_shader_int64 : require
+
+struct Meshlet {
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+
+    float cone_apex[3];
+    float cone_axis[3];
+    float cone_cutoff;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletBuffer {
+    Meshlet meshlets[];
+};
+
+layout( push_constant, scalar ) uniform PushConstant {
+    mat4          view;
+    mat4          projection;
+    vec4          camera_position;
+    uint64_t      vertex_buffer;
+    MeshletBuffer meshlet_buffer;
+    uint64_t      meshlet_vertices;
+    uint64_t      meshlet_triangles;
+    uint          meshlet_count;
+}
+pc;
+
+layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
+
+struct MeshTaskPayload {
+    uint meshlet_indices[32];
+};
+taskPayloadSharedEXT MeshTaskPayload payload;
+
+shared uint meshlet_count;
+
+bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff ) {
+    float dot_product = dot( view_direction, cone_axis );
+    return dot_product >= cone_cutoff;
+}
+
+void main( ) {
+    uint wg = gl_WorkGroupID.x;
+    uint ti = gl_LocalInvocationID.x;
+
+    // Calculate the meshlet ID for the current invocation
+    uint mid = wg * 32 + ti;
+
+    meshlet_count = 0;
+    memoryBarrier( );
+
+    // take rounding back into acount
+    if ( mid < pc.meshlet_count ) {
+
+        // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
+        Meshlet meshlet        = pc.meshlet_buffer.meshlets[mid];
+        vec3    view_direction = normalize( vec3( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2] ) - pc.camera_position.xyz );
+        vec3    cone_axis      = vec3( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2] );
+        if ( !cone_cull( view_direction, cone_axis, meshlet.cone_cutoff ) ) {
+            uint index                     = atomicAdd( meshlet_count, 1 );
+            payload.meshlet_indices[index] = mid;
+        }
+    }
+
+    memoryBarrier( );
+
+    // Emit mesh shader groups for the meshlets that passed culling
+    EmitMeshTasksEXT( meshlet_count, 1, 1 );
+}
