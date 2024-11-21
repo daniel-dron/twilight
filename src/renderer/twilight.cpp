@@ -46,12 +46,14 @@ void Renderer::Initialize( ) {
 
     g_ctx.initialize( width, height, "Twilight", m_window );
 
-    m_camera.near        = 0.001f;
-    m_camera.far         = 20000.0f;
-    m_camera.fov         = 70.0f;
-    // m_camera.position    = glm::vec3( 5000.0f, 5000.0f, 10000.0f );
-    m_camera.position    = glm::vec3( 30.0f, 15.0f, 50.0f );
-    m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
+    m_camera = Camera( glm::vec3( 0.0f, 0.0f, 0.0f ), 0, 0, width, height );
+
+    // m_camera.near        = 0.001f;
+    // m_camera.far         = 20000.0f;
+    // m_camera.fov         = 70.0f;
+    // // m_camera.position    = glm::vec3( 5000.0f, 5000.0f, 10000.0f );
+    // m_camera.position    = glm::vec3( 30.0f, 15.0f, 50.0f );
+    // m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
 
     m_mesh_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
@@ -216,29 +218,6 @@ void Renderer::Run( ) {
     }
 }
 
-void Renderer::process_events( ) {
-    SDL_Event event;
-    while ( SDL_PollEvent( &event ) != 0 ) {
-        if ( event.type == SDL_QUIT ) {
-            m_quit = true;
-        }
-
-        if ( event.type == SDL_WINDOWEVENT ) {
-            if ( event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && event.window.data1 > 0 && event.window.data2 > 0 ) {
-                this->width  = event.window.data1;
-                this->height = event.window.data2;
-                g_ctx.swapchain.resize( event.window.data1, event.window.data2, g_ctx.chosen_gpu, g_ctx.device, g_ctx.surface );
-            }
-        }
-
-        if ( event.type == SDL_KEYDOWN ) {
-            if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
-                m_use_mesh_pipeline = !m_use_mesh_pipeline;
-            }
-        }
-    }
-}
-
 void Renderer::tick( u32 swapchain_image_idx ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
@@ -267,15 +246,10 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline );
 
     // Camera matrices
-    glm::mat4 view       = glm::mat4_cast( m_camera.orientation );
-    view[3]              = glm::vec4( m_camera.position, 1.0f );
-    view                 = inverse( view );
-    glm::mat4 projection = glm::perspective( m_camera.fov, ( float )width / ( float )height, m_camera.near, m_camera.far );
-
     ScenePushConstants pc{
-            .view              = view,
-            .projection        = projection,
-            .camera_position   = glm::vec4( m_camera.position, 1.0f ),
+            .view              = m_camera.get_view_matrix( ),
+            .projection        = m_camera.get_projection_matrix( ),
+            .camera_position   = glm::vec4( m_camera.get_position( ), 1.0f ),
             .vertex_buffer     = m_mesh.vertex_buffer.device_address,
             .meshlets_buffer   = m_mesh.meshlets_buffer.device_address,
             .meshlet_vertices  = m_mesh.meshlets_vertices.device_address,
@@ -387,13 +361,61 @@ void tl::build_meshlets( Mesh& mesh ) {
     }
 }
 
+void Renderer::process_events( ) {
+    SDL_Event    event;
+    const Uint8* keystate = SDL_GetKeyboardState( NULL );
+
+    while ( SDL_PollEvent( &event ) != 0 ) {
+        if ( event.type == SDL_QUIT ) {
+            m_quit = true;
+        }
+
+        if ( event.type == SDL_WINDOWEVENT ) {
+            if ( event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && event.window.data1 > 0 && event.window.data2 > 0 ) {
+                this->width  = event.window.data1;
+                this->height = event.window.data2;
+                g_ctx.swapchain.resize( event.window.data1, event.window.data2, g_ctx.chosen_gpu, g_ctx.device, g_ctx.surface );
+            }
+        }
+
+        if ( event.type == SDL_KEYDOWN ) {
+            if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
+                m_use_mesh_pipeline = !m_use_mesh_pipeline;
+            }
+        }
+
+        if ( event.type == SDL_MOUSEMOTION ) {
+            if ( SDL_GetMouseState( NULL, NULL ) & SDL_BUTTON( SDL_BUTTON_RIGHT ) ) {
+                float sensitivity = 0.2f;
+                float delta_yaw   = event.motion.xrel * sensitivity;
+                float delta_pitch = -event.motion.yrel * sensitivity;
+                m_camera.rotate( delta_yaw, delta_pitch );
+            }
+        }
+    }
+
+    glm::vec3 movement( 0.0f );
+    if ( keystate[SDL_SCANCODE_W] )
+        movement += m_camera.get_front( );
+    if ( keystate[SDL_SCANCODE_S] )
+        movement -= m_camera.get_front( );
+    if ( keystate[SDL_SCANCODE_A] )
+        movement -= m_camera.get_right( );
+    if ( keystate[SDL_SCANCODE_D] )
+        movement += m_camera.get_right( );
+    if ( glm::length( movement ) > 0 ) {
+        glm::vec3 current_pos = m_camera.get_position( );
+        m_camera.set_position( current_pos + glm::normalize( movement ) * move_speed );
+    }
+}
+
 std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name ) {
     assert( !gltf_path.empty( ) );
     assert( !mesh_name.empty( ) );
     assert( std::filesystem::exists( gltf_path ) );
 
     Assimp::Importer importer;
-    const auto       aiScene = importer.ReadFile( gltf_path, aiProcess_Triangulate | aiProcess_GenBoundingBoxes );
+    const auto       aiScene = importer.ReadFile( gltf_path, aiProcess_Triangulate | aiProcess_GenBoundingBoxes | aiProcess_FlipWindingOrder );
 
     for ( size_t i = 0; i < aiScene->mNumMeshes; i++ ) {
         if ( std::string( aiScene->mMeshes[i]->mName.C_Str( ) ) == mesh_name ) {

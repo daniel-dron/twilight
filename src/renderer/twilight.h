@@ -16,17 +16,10 @@
 #include <optional>
 #include <renderer/r_shaders.h>
 #include <types.h>
+#include "r_camera.h"
 #include "r_resources.h"
 
 namespace tl {
-    struct Camera {
-        glm::vec3 position;
-        glm::quat orientation;
-        float     fov;
-        float     near;
-        float     far;
-    };
-
     struct ScenePushConstants {
         glm::mat4 view;
         glm::mat4 projection;
@@ -106,6 +99,8 @@ namespace tl {
         Pipeline m_mesh_pipeline;
 
         Camera                m_camera;
+        // float                 move_speed = 100.0f;
+        float                 move_speed = 0.005f;
         Mesh                  m_mesh;
         std::vector<MeshDraw> m_draws;
     };

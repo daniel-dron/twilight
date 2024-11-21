@@ -28,6 +28,10 @@ typedef int64_t i64;
 typedef float  f32;
 typedef double f64;
 
+constexpr glm::vec3 GLOBAL_UP{ 0.0f, 1.0f, 0.0f };
+constexpr glm::vec3 GLOBAL_RIGHT{ -1.0f, 0.0f, 0.0f };
+constexpr glm::vec3 GLOBAL_FRONT{ 0.0f, 0.0f, -1.0f };
+
 template<typename T>
 T* PtrTo( T&& v ) {
     return &v;

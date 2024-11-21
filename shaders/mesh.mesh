@@ -52,12 +52,28 @@ layout( push_constant, scalar ) uniform PushConstant {
 }
 pc;
 
-layout( location = 0 ) out uint out_primitive_index[];
+layout( location = 0 ) out vec3 color[];
 
 struct MeshTaskPayload {
     uint meshlet_indices[32];
 };
 taskPayloadSharedEXT MeshTaskPayload payload;
+
+uint murmurHash( uint idx ) {
+    uint m = 0x5bd1e995;
+    uint r = 24;
+
+    uint h = 64684;
+    uint k = idx;
+
+    k *= m;
+    k ^= ( k >> r );
+    k *= m;
+    h *= m;
+    h ^= k;
+
+    return h;
+}
 
 void main( ) {
     uint mid = payload.meshlet_indices[gl_WorkGroupID.x];
@@ -67,10 +83,13 @@ void main( ) {
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 
     for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
-        uint   index                      = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
-        Vertex v                          = pc.vertex_buffer.vertices[index];
-        vec4   pos                        = pc.projection * pc.view * pc.model * vec4( v.vx, v.vy, v.vz, 1 );
-        out_primitive_index[i]            = int( gl_WorkGroupID.x );
+        uint   index = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
+        Vertex v     = pc.vertex_buffer.vertices[index];
+        vec4   pos   = pc.projection * pc.view * pc.model * vec4( v.vx, v.vy, v.vz, 1 );
+
+        uint color_packed = murmurHash( gl_WorkGroupID.x );
+        color[i]          = unpackUnorm4x8( color_packed ).xyz;
+
         gl_MeshVerticesEXT[i].gl_Position = pos;
     }
 
