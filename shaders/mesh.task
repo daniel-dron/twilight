@@ -23,6 +23,7 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer M
 layout( push_constant, scalar ) uniform PushConstant {
     mat4          view;
     mat4          projection;
+    mat4          model;
     vec4          camera_position;
     uint64_t      vertex_buffer;
     MeshletBuffer meshlet_buffer;
@@ -60,10 +61,12 @@ void main( ) {
     if ( mid < pc.meshlet_count ) {
 
         // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
-        Meshlet meshlet        = pc.meshlet_buffer.meshlets[mid];
-        vec3    view_direction = normalize( vec3( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2] ) - pc.camera_position.xyz );
-        vec3    cone_axis      = vec3( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2] );
-        if ( !cone_cull( view_direction, cone_axis, meshlet.cone_cutoff ) ) {
+        Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
+
+        vec4 apex           = pc.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
+        vec3 view_direction = normalize( apex.xyz - pc.camera_position.xyz );
+        vec4 cone_axis      = vec4( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2], 1.0f );
+        if ( !cone_cull( view_direction, cone_axis.xyz, meshlet.cone_cutoff ) ) {
             uint index                     = atomicAdd( meshlet_count, 1 );
             payload.meshlet_indices[index] = mid;
         }

@@ -47,10 +47,10 @@ void Renderer::Initialize( ) {
     g_ctx.initialize( width, height, "Twilight", m_window );
 
     m_camera.near        = 0.001f;
-    m_camera.far         = 5000.0f;
+    m_camera.far         = 20000.0f;
     m_camera.fov         = 70.0f;
-    m_camera.position    = glm::vec3( 600.0f, 500.0f, 1000.0f );
-    // m_camera.position    = glm::vec3( 0.0f, 0.0f, 10.0f );
+    // m_camera.position    = glm::vec3( 5000.0f, 5000.0f, 10000.0f );
+    m_camera.position    = glm::vec3( 30.0f, 15.0f, 50.0f );
     m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
 
     m_mesh_pipeline.initialize( PipelineConfig{
@@ -73,9 +73,9 @@ void Renderer::Initialize( ) {
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
     } );
 
-    // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
+    m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
     // m_mesh               = load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( );
-    m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
+    // m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
     m_mesh.vertex_buffer = create_buffer( m_mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
     m_mesh.index_buffer  = create_buffer( m_mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
 
@@ -115,6 +115,26 @@ void Renderer::Initialize( ) {
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
+    }
+
+    for ( u32 i = 0; i < 100; i++ ) {
+        const u32 grid_width  = 10;
+        const u32 grid_height = 10;
+
+        glm::vec3 mesh_size = m_mesh.max - m_mesh.min;
+
+        m_draws.clear( );
+        m_draws.reserve( grid_width * grid_height );
+
+        for ( u32 y = 0; y < grid_height; y++ ) {
+            for ( u32 x = 0; x < grid_width; x++ ) {
+                float xPos = x * mesh_size.x;
+                float yPos = y * mesh_size.y;
+
+                glm::mat4 translation = glm::translate( glm::mat4( 1.0f ), glm::vec3( xPos, yPos, 0.0f ) );
+                m_draws.emplace_back( MeshDraw{ m_mesh, translation } );
+            }
+        }
     }
 }
 
@@ -263,20 +283,25 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .meshlet_count     = u32( m_mesh.meshlets.size( ) ) };
 
     if ( m_use_mesh_pipeline ) {
-        vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-        for ( auto i = 0; i < 100; i++ ) {
+        for ( auto& draw : m_draws ) {
             for ( auto& meshlet : m_mesh.meshlets ) {
                 m_frame_triangles += meshlet.triangle_count;
             }
 
-            auto n = m_mesh.meshlets.size( ) / 32;
+            pc.model = draw.model;
+            vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
+
+            auto n = u32( m_mesh.meshlets.size( ) + 31 ) / 32;
             vkCmdDrawMeshTasksEXT( cmd, n, 1, 1 );
         }
     }
     else {
-        vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
         vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
-        for ( auto i = 0; i < 100; i++ ) {
+
+        for ( auto& draw : m_draws ) {
+            pc.model = draw.model;
+            vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
+
             vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
             m_frame_triangles += m_mesh.indices.size( ) / 3;
         }
@@ -368,7 +393,7 @@ std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const
     assert( std::filesystem::exists( gltf_path ) );
 
     Assimp::Importer importer;
-    const auto       aiScene = importer.ReadFile( gltf_path, aiProcess_Triangulate );
+    const auto       aiScene = importer.ReadFile( gltf_path, aiProcess_Triangulate | aiProcess_GenBoundingBoxes );
 
     for ( size_t i = 0; i < aiScene->mNumMeshes; i++ ) {
         if ( std::string( aiScene->mMeshes[i]->mName.C_Str( ) ) == mesh_name ) {
@@ -391,6 +416,9 @@ std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const
                 mesh.indices.emplace_back( face.mIndices[1] );
                 mesh.indices.emplace_back( face.mIndices[2] );
             }
+
+            mesh.min = glm::vec3( ai_mesh->mAABB.mMin.x, ai_mesh->mAABB.mMin.y, ai_mesh->mAABB.mMin.z );
+            mesh.max = glm::vec3( ai_mesh->mAABB.mMax.x, ai_mesh->mAABB.mMax.y, ai_mesh->mAABB.mMax.z );
 
             return mesh;
         }

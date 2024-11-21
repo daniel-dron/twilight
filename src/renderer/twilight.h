@@ -30,6 +30,7 @@ namespace tl {
     struct ScenePushConstants {
         glm::mat4 view;
         glm::mat4 projection;
+        glm::mat4 model;
         glm::vec4 camera_position;
         u64       vertex_buffer;
         u64       meshlets_buffer;
@@ -66,6 +67,18 @@ namespace tl {
         Buffer               meshlets_buffer;
         Buffer               meshlets_vertices;
         Buffer               meshlets_triangles;
+
+        glm::vec3 min;
+        glm::vec3 max;
+    };
+
+    struct MeshDraw {
+        Mesh&     mesh;
+        glm::mat4 model;
+    };
+
+    struct MeshDrawPushConstants {
+        glm::mat4 model;
     };
 
     class Renderer {
@@ -91,8 +104,10 @@ namespace tl {
 
         Pipeline m_pipeline;
         Pipeline m_mesh_pipeline;
-        Camera   m_camera;
-        Mesh     m_mesh;
+
+        Camera                m_camera;
+        Mesh                  m_mesh;
+        std::vector<MeshDraw> m_draws;
     };
 
     void                build_meshlets( Mesh& mesh );

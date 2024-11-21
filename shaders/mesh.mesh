@@ -42,6 +42,7 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer M
 layout( push_constant, scalar ) uniform PushConstant {
     mat4             view;
     mat4             projection;
+    mat4             model;
     vec4             camera_position;
     VertexBuffer     vertex_buffer;
     MeshletBuffer    meshlet_buffer;
@@ -63,13 +64,12 @@ void main( ) {
 
     Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
 
-
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 
     for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
         uint   index                      = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
         Vertex v                          = pc.vertex_buffer.vertices[index];
-        vec4   pos                        = pc.projection * pc.view * vec4( v.vx, v.vy, v.vz, 1 );
+        vec4   pos                        = pc.projection * pc.view * pc.model * vec4( v.vx, v.vy, v.vz, 1 );
         out_primitive_index[i]            = int( gl_WorkGroupID.x );
         gl_MeshVerticesEXT[i].gl_Position = pos;
     }
