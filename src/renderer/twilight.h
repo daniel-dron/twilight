@@ -42,7 +42,7 @@ namespace tl {
     };
 
     const size_t max_vertices  = 64;
-    const size_t max_triangles = 96;
+    const size_t max_triangles = 126;
     struct Meshlet {
         u32 vertex_offset;
         u32 triangle_offset;

@@ -50,6 +50,7 @@ void Renderer::Initialize( ) {
     m_camera.far         = 5000.0f;
     m_camera.fov         = 70.0f;
     m_camera.position    = glm::vec3( 600.0f, 500.0f, 1000.0f );
+    // m_camera.position    = glm::vec3( 0.0f, 0.0f, 10.0f );
     m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
 
     m_mesh_pipeline.initialize( PipelineConfig{
@@ -189,7 +190,7 @@ void Renderer::Run( ) {
 
         f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
 
-        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; triangles {:.2f}M; {:.1f}B; pipeline: {}", avg_cpu_time, avg_gpu_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, ( m_use_mesh_pipeline ? "meshlet" : "buffer" ) );
+        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; pipeline: {}", avg_cpu_time, avg_gpu_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, ( m_use_mesh_pipeline ? "meshlet" : "buffer" ) );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -260,18 +261,21 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .meshlet_triangles = m_mesh.meshlets_triangles.device_address };
     vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
 
-
     if ( m_use_mesh_pipeline ) {
-        for ( auto& meshlet : m_mesh.meshlets ) {
-            m_frame_triangles += meshlet.triangle_count;
-        }
+        for ( auto i = 0; i < 100; i++ ) {
+            for ( auto& meshlet : m_mesh.meshlets ) {
+                m_frame_triangles += meshlet.triangle_count;
+            }
 
-        vkCmdDrawMeshTasksEXT( cmd, u32( m_mesh.meshlets.size( ) ), 1, 1 );
+            vkCmdDrawMeshTasksEXT( cmd, u32( m_mesh.meshlets.size( ) ), 1, 1 );
+        }
     }
     else {
         vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
-        vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
-        m_frame_triangles += m_mesh.indices.size( ) / 3;
+        for ( auto i = 0; i < 100; i++ ) {
+            vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
+            m_frame_triangles += m_mesh.indices.size( ) / 3;
+        }
     }
 
     vkCmdEndRendering( cmd );
