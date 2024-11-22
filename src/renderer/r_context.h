@@ -27,6 +27,7 @@ namespace tl {
         VkSemaphore     swapchain_semaphore;
         VkSemaphore     render_semaphore;
         VkFence         fence;
+        Image           depth;
 
         VkQueryPool        query_pool_timestamps = VK_NULL_HANDLE;
         std::array<u64, 2> gpu_timestamps        = { 0 };
@@ -35,6 +36,7 @@ namespace tl {
     struct Context {
         void initialize( u32 width, u32 height, const std::string& name, struct SDL_Window* window );
         void shutdown( );
+        void resize( u32 width, u32 height, VkDevice device, VkSurfaceKHR surface );
 
         FrameData& get_current_frame( );
 

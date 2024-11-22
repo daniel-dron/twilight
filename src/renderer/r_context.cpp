@@ -44,14 +44,13 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
 #endif
 
     _create_device( name, window );
+    swapchain.initialize( width, height, chosen_gpu, device, surface );
+
     _create_frames( );
     _create_global_command( );
 
     // create global staging buffer (100MB)
     staging_buffer = create_buffer( 1000 * 1000 * 100, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
-
-    // Swapchain
-    swapchain.initialize( width, height, chosen_gpu, device, surface );
 }
 
 void Context::shutdown( ) {
@@ -66,6 +65,7 @@ void Context::shutdown( ) {
         vkDestroySemaphore( device, frame.render_semaphore, nullptr );
         vkDestroyFence( device, frame.fence, nullptr );
         vkDestroyQueryPool( device, frame.query_pool_timestamps, nullptr );
+        destroy_image( frame.depth );
     }
 
     vkDestroyCommandPool( device, pool, nullptr );
@@ -234,9 +234,20 @@ void Context::_create_frames( ) {
                 .queryCount = u32( frame.gpu_timestamps.size( ) ) };
         VKCALL( vkCreateQueryPool( device, &query_pool_info, nullptr, &frame.query_pool_timestamps ) );
         vkResetQueryPool( device, frame.query_pool_timestamps, 0, frame.gpu_timestamps.size( ) );
+
+        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1 );
     }
 }
 
 FrameData& Context::get_current_frame( ) {
     return frames.at( current_frame % frame_overlap );
+}
+
+void Context::resize( u32 width, u32 height, VkDevice device, VkSurfaceKHR surface ) {
+    for ( auto& frame : frames ) {
+        destroy_image( frame.depth );
+        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1 );
+    }
+
+    swapchain.resize( width, height, chosen_gpu, device, surface );
 }

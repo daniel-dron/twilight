@@ -55,5 +55,15 @@ namespace tl {
     void   destroy_buffer( Buffer& buffer );
     void   upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset = 0 );
 
+    // Image
+    struct Image {
+        VkImage       image      = VK_NULL_HANDLE;
+        VkImageView   view       = VK_NULL_HANDLE;
+        VkExtent3D    extent     = { };
+        VkFormat      format     = { };
+        VmaAllocation allocation = { };
+    };
+    Image create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels );
+    void  destroy_image( Image& image );
 
 } // namespace tl

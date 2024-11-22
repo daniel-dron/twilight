@@ -15,6 +15,7 @@
 
 #include "r_context.h"
 #include "r_resources.h"
+#include "renderer/r_context.h"
 #include "types.h"
 
 using namespace tl;
@@ -286,4 +287,60 @@ void tl::upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 off
     assert( data != nullptr );
 
     memcpy( ( void* )( buffer.gpu_data + offset ), data, size );
+}
+
+Image tl::create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels ) {
+    Image image;
+
+    image.format = format;
+    image.extent = VkExtent3D{ width, height, 1 };
+
+    const VkImageCreateInfo create_info = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext = nullptr,
+
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format    = format,
+            .extent    = { width, height, 1 },
+
+            .mipLevels   = mip_levels,
+            .arrayLayers = 1,
+
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling  = VK_IMAGE_TILING_OPTIMAL,
+            .usage   = usage_flags,
+    };
+
+    constexpr VmaAllocationCreateInfo alloc_info = {
+            .usage         = VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = static_cast<VkMemoryPropertyFlags>( VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT ),
+    };
+    VKCALL( vmaCreateImage( g_ctx.allocator, &create_info, &alloc_info, &image.image, &image.allocation, nullptr ) );
+
+    const VkImageViewCreateInfo view_info{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+
+            .image            = image.image,
+            .viewType         = VK_IMAGE_VIEW_TYPE_2D,
+            .format           = image.format,
+            .subresourceRange = {
+                    .aspectMask     = VkImageAspectFlags( image.format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT ),
+                    .baseMipLevel   = 0,
+                    .levelCount     = VK_REMAINING_MIP_LEVELS,
+                    .baseArrayLayer = 0,
+                    .layerCount     = 1
+
+            } };
+    VKCALL( vkCreateImageView( g_ctx.device, &view_info, nullptr, &image.view ) );
+
+    return image;
+}
+
+void tl::destroy_image( Image& image ) {
+    if ( image.view ) {
+        vkDestroyImageView( g_ctx.device, image.view, nullptr );
+    }
+
+    vmaDestroyImage( g_ctx.allocator, image.image, image.allocation );
 }

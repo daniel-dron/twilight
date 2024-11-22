@@ -181,6 +181,10 @@ void Renderer::Run( ) {
         image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED,
                        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
+        image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                       VK_IMAGE_ASPECT_DEPTH_BIT );
+
         tick( swapchain_image_idx );
         image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
                        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -222,15 +226,25 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
 
-    VkClearValue    clear_color{ 0.1f, 0.05f, 0.1f, 1.0f };
-    std::array      attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
+    VkClearValue              clear_color{ 0.1f, 0.05f, 0.1f, 1.0f };
+    std::array                attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
+    VkRenderingAttachmentInfo depth_attachment{
+            .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext       = nullptr,
+            .imageView   = frame.depth.view,
+            .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue  = {
+                     .depthStencil = { .depth = 1.0f } } };
     VkRenderingInfo render_info = {
             .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
             .pNext                = nullptr,
             .renderArea           = VkRect2D{ VkOffset2D{ 0, 0 }, VkExtent2D{ width, height } },
             .layerCount           = 1,
             .colorAttachmentCount = ( u32 )attachments.size( ),
-            .pColorAttachments    = attachments.data( ) };
+            .pColorAttachments    = attachments.data( ),
+            .pDepthAttachment     = &depth_attachment };
     vkCmdBeginRendering( cmd, &render_info );
 
     VkViewport viewport = {
@@ -374,7 +388,7 @@ void Renderer::process_events( ) {
             if ( event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && event.window.data1 > 0 && event.window.data2 > 0 ) {
                 this->width  = event.window.data1;
                 this->height = event.window.data2;
-                g_ctx.swapchain.resize( event.window.data1, event.window.data2, g_ctx.chosen_gpu, g_ctx.device, g_ctx.surface );
+                g_ctx.resize( event.window.data1, event.window.data2, g_ctx.device, g_ctx.surface );
             }
         }
 
