@@ -34,6 +34,7 @@ namespace tl {
 
     struct Vertex {
         f32 vx, vy, vz;
+        f32 nx, ny, nz;
     };
 
     const size_t max_vertices  = 64;
@@ -99,8 +100,8 @@ namespace tl {
         Pipeline m_mesh_pipeline;
 
         Camera                m_camera;
-        // float                 move_speed = 100.0f;
-        float                 move_speed = 0.005f;
+        float                 move_speed = 30.0f;
+        // float                 move_speed = 0.005f;
         Mesh                  m_mesh;
         std::vector<MeshDraw> m_draws;
     };

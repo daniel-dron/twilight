@@ -48,13 +48,6 @@ void Renderer::Initialize( ) {
 
     m_camera = Camera( glm::vec3( 0.0f, 0.0f, 0.0f ), 0, 0, width, height );
 
-    // m_camera.near        = 0.001f;
-    // m_camera.far         = 20000.0f;
-    // m_camera.fov         = 70.0f;
-    // // m_camera.position    = glm::vec3( 5000.0f, 5000.0f, 10000.0f );
-    // m_camera.position    = glm::vec3( 30.0f, 15.0f, 50.0f );
-    // m_camera.orientation = glm::quat( 0.0f, 0.0f, 0.0f, 1.0f );
-
     m_mesh_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
             .pixel                = "../shaders/mesh.frag.spv",
@@ -75,9 +68,9 @@ void Renderer::Initialize( ) {
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
     } );
 
-    m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
+    // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
     // m_mesh               = load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( );
-    // m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
+    m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
     m_mesh.vertex_buffer = create_buffer( m_mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
     m_mesh.index_buffer  = create_buffer( m_mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
 
@@ -119,24 +112,36 @@ void Renderer::Initialize( ) {
         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
     }
 
-    for ( u32 i = 0; i < 100; i++ ) {
-        const u32 grid_width  = 10;
-        const u32 grid_height = 10;
+    u64 count  = 500;
+    f32 radius = 5000.0f;
+    m_draws.reserve( count );
 
-        glm::vec3 mesh_size = m_mesh.max - m_mesh.min;
+    std::random_device                    rd;
+    std::mt19937                          gen( rd( ) );
+    std::uniform_real_distribution<float> posDist( -radius, radius );
+    std::uniform_real_distribution<float> rotDist( 0.0f, 360.0f );
+    std::uniform_real_distribution<float> scaleDist( 0.8f, 1.2f );
 
-        m_draws.clear( );
-        m_draws.reserve( grid_width * grid_height );
+    for ( int i = 0; i < count; ++i ) {
+        glm::vec3 position(
+                posDist( gen ),
+                posDist( gen ),
+                posDist( gen ) );
 
-        for ( u32 y = 0; y < grid_height; y++ ) {
-            for ( u32 x = 0; x < grid_width; x++ ) {
-                float xPos = x * mesh_size.x;
-                float yPos = y * mesh_size.y;
+        float rotX = glm::radians( rotDist( gen ) );
+        float rotY = glm::radians( rotDist( gen ) );
+        float rotZ = glm::radians( rotDist( gen ) );
 
-                glm::mat4 translation = glm::translate( glm::mat4( 1.0f ), glm::vec3( xPos, yPos, 0.0f ) );
-                m_draws.emplace_back( MeshDraw{ m_mesh, translation } );
-            }
-        }
+        float scale = scaleDist( gen );
+
+        glm::mat4 model = glm::mat4( 1.0f );
+        model           = glm::translate( model, position );
+        model           = glm::rotate( model, rotX, glm::vec3( 1.0f, 0.0f, 0.0f ) );
+        model           = glm::rotate( model, rotY, glm::vec3( 0.0f, 1.0f, 0.0f ) );
+        model           = glm::rotate( model, rotZ, glm::vec3( 0.0f, 0.0f, 1.0f ) );
+        model           = glm::scale( model, glm::vec3( scale ) );
+
+        m_draws.emplace_back( MeshDraw{ m_mesh, model } );
     }
 }
 
@@ -441,8 +446,10 @@ std::optional<Mesh> tl::load_mesh_from_file( const std::string& gltf_path, const
 
             mesh.vertices.reserve( ai_mesh->mNumVertices );
             for ( u32 i = 0; i < ai_mesh->mNumVertices; i++ ) {
-                auto vertex = ai_mesh->mVertices[i];
-                mesh.vertices.push_back( { vertex.x, vertex.y, vertex.z } );
+                auto vertex  = ai_mesh->mVertices[i];
+                auto normals = ai_mesh->mNormals[i];
+
+                mesh.vertices.push_back( { vertex.x, vertex.y, vertex.z, normals.x, normals.y, normals.z } );
             }
 
             mesh.indices.reserve( ai_mesh->mNumFaces * 3 );
