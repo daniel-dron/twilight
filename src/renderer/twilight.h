@@ -26,11 +26,7 @@ namespace tl {
         glm::mat4 projection;
         glm::vec4 camera_position;
         u64       draws_buffer;
-        u64       vertex_buffer;
-        u64       meshlets_buffer;
-        u64       meshlet_vertices;
-        u64       meshlet_triangles;
-        u32       meshlet_count;
+        u64       meshes;
     };
 
     struct Vertex {
@@ -105,12 +101,13 @@ namespace tl {
         Buffer                                         m_command_buffer = { };
         std::vector<VkDrawMeshTasksIndirectCommandEXT> m_commands       = { };
         Buffer                                         m_draws_buffer   = { };
-        std::vector<Draw>                              m_draws;
+        std::vector<Draw>                              m_draws          = { };
 
-        Camera    m_camera;
-        float     move_speed = 30.0f;
-        // float                 move_speed = 0.005f;
-        MeshAsset m_mesh;
+        Camera                 m_camera;
+        float                  move_speed = 0.5f;
+        std::vector<MeshAsset> m_mesh_assets;
+        std::vector<Mesh>      m_meshes;
+        Buffer                 m_meshes_buffer = { };
     };
 
     void                     build_meshlets( MeshAsset& mesh );

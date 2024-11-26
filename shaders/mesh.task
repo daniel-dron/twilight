@@ -30,16 +30,24 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer D
     Draw draws[];
 };
 
-layout( push_constant, scalar ) uniform PushConstant {
-    mat4          view;
-    mat4          projection;
-    vec4          camera_position;
-    DrawsBuffer   draws_buffer;
+struct Mesh {
     uint64_t      vertex_buffer;
     MeshletBuffer meshlet_buffer;
     uint64_t      meshlet_vertices;
     uint64_t      meshlet_triangles;
-    uint          meshlet_count;
+    uint64_t      meshlet_count;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {
+    Mesh meshes[];
+};
+
+layout( push_constant, scalar ) uniform PushConstant {
+    mat4         view;
+    mat4         projection;
+    vec4         camera_position;
+    DrawsBuffer  draws_buffer;
+    MeshesBuffer meshes_buffer;
 }
 pc;
 
@@ -62,8 +70,10 @@ bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff, mat4 mod
 }
 
 void main( ) {
-    Draw draw = pc.draws_buffer.draws[gl_DrawID];
+    Draw draw       = pc.draws_buffer.draws[gl_DrawID];
     payload.draw_id = gl_DrawID;
+
+    Mesh mesh = pc.meshes_buffer.meshes[uint( draw.mesh )];
 
     uint wg = gl_WorkGroupID.x;
     uint ti = gl_LocalInvocationID.x;
@@ -75,10 +85,10 @@ void main( ) {
     memoryBarrier( );
 
     // take rounding back into acount
-    if ( mid < pc.meshlet_count ) {
+    if ( mid < mesh.meshlet_count ) {
 
         // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
-        Meshlet meshlet = pc.meshlet_buffer.meshlets[mid];
+        Meshlet meshlet = mesh.meshlet_buffer.meshlets[mid];
 
         vec4 apex           = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
         vec3 view_direction = normalize( pc.camera_position.xyz - apex.xyz );

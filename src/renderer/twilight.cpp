@@ -58,22 +58,23 @@ void Renderer::Initialize( ) {
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
 
-    m_command_buffer = create_buffer( sizeof( VkDrawMeshTasksIndirectCommandEXT ) * 1000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
-    m_draws_buffer   = create_buffer( sizeof( Draw ) * 1000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_buffer = create_buffer( sizeof( VkDrawMeshTasksIndirectCommandEXT ) * 2000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+    m_draws_buffer   = create_buffer( sizeof( Draw ) * 2000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_meshes_buffer  = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    // m_mesh               = load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( );
-    // m_mesh               = load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( );
-    m_mesh               = load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( );
-    m_mesh.vertex_buffer = create_buffer( m_mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
-    m_mesh.index_buffer  = create_buffer( m_mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
+    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( ) );
+    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( ) );
 
-    build_meshlets( m_mesh );
-    m_mesh.meshlets_buffer = create_buffer( m_mesh.meshlets.size( ) * sizeof( Meshlet ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
-
-    // upload mesh
-    upload_buffer_data( g_ctx.staging_buffer, m_mesh.vertices.data( ), m_mesh.vertex_buffer.size );
-    upload_buffer_data( g_ctx.staging_buffer, m_mesh.indices.data( ), m_mesh.index_buffer.size, m_mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
-    upload_buffer_data( g_ctx.staging_buffer, m_mesh.meshlets.data( ), m_mesh.meshlets_buffer.size, m_mesh.vertex_buffer.size + m_mesh.index_buffer.size );
+    for ( auto& mesh_asset : m_mesh_assets ) {
+        Mesh mesh{
+                .vertex_buffer     = mesh_asset.vertex_buffer.device_address,
+                .meshlet_buffer    = mesh_asset.meshlets_buffer.device_address,
+                .meshlet_vertices  = mesh_asset.meshlets_vertices.device_address,
+                .meshlet_triangles = mesh_asset.meshlets_triangles.device_address,
+                .meshlet_count     = mesh_asset.meshlets.size( ) };
+        m_meshes.emplace_back( mesh );
+    }
 
     {
         auto& cmd = g_ctx.global_cmd;
@@ -81,32 +82,21 @@ void Renderer::Initialize( ) {
         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
-        // Copy vertex and index buffer
-        const VkBufferCopy vertex_copy = {
+        upload_buffer_data( g_ctx.staging_buffer, m_meshes.data( ), sizeof( Mesh ) * m_meshes.size( ) );
+
+        const VkBufferCopy copy = {
                 .srcOffset = 0,
                 .dstOffset = 0,
-                .size      = m_mesh.vertex_buffer.size };
-        const VkBufferCopy index_copy = {
-                .srcOffset = m_mesh.vertex_buffer.size,
-                .dstOffset = 0,
-                .size      = m_mesh.index_buffer.size };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_mesh.vertex_buffer.buffer, 1, &vertex_copy );
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_mesh.index_buffer.buffer, 1, &index_copy );
-
-        // Copy meshlets
-        const VkBufferCopy meshlets_copy = {
-                .srcOffset = m_mesh.vertex_buffer.size + m_mesh.index_buffer.size,
-                .dstOffset = 0,
-                .size      = m_mesh.meshlets_buffer.size };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_mesh.meshlets_buffer.buffer, 1, &meshlets_copy );
+                .size      = sizeof( Mesh ) * m_meshes.size( ) };
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_meshes_buffer.buffer, 1, &copy );
 
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
     }
 
-    u64 count  = 500;
-    f32 radius = 5000.0f;
+    u64 count  = 2000;
+    f32 radius = 50.0f;
     m_draws.reserve( count );
 
     std::random_device                    rd;
@@ -116,6 +106,8 @@ void Renderer::Initialize( ) {
     std::uniform_real_distribution<float> scaleDist( 0.8f, 1.2f );
 
     for ( int i = 0; i < count; ++i ) {
+        u64 mesh_id = rand( ) % m_mesh_assets.size( );
+
         glm::vec3 position(
                 posDist( gen ),
                 posDist( gen ),
@@ -126,6 +118,9 @@ void Renderer::Initialize( ) {
         float rotZ = glm::radians( rotDist( gen ) );
 
         float scale = scaleDist( gen );
+        if ( mesh_id == 0 ) {
+            scale /= 100.0f;
+        }
 
         glm::mat4 model = glm::mat4( 1.0f );
         model           = glm::translate( model, position );
@@ -134,10 +129,10 @@ void Renderer::Initialize( ) {
         model           = glm::rotate( model, rotZ, glm::vec3( 0.0f, 0.0f, 1.0f ) );
         model           = glm::scale( model, glm::vec3( scale ) );
 
-        m_draws.emplace_back( Draw{ model, 0 } );
+        m_draws.emplace_back( Draw{ model, mesh_id } );
 
         VkDrawMeshTasksIndirectCommandEXT command = {
-                .groupCountX = u32( m_mesh.meshlets.size( ) + 31 ) / 32,
+                .groupCountX = u32( m_mesh_assets.at( mesh_id ).meshlets.size( ) + 31 ) / 32,
                 .groupCountY = 1,
                 .groupCountZ = 1 };
         m_commands.emplace_back( command );
@@ -175,7 +170,11 @@ void Renderer::Shutdown( ) {
 
     destroy_buffer( m_command_buffer );
     destroy_buffer( m_draws_buffer );
-    destroy_mesh( m_mesh );
+    destroy_buffer( m_meshes_buffer );
+
+    for ( auto& mesh : m_mesh_assets ) {
+        destroy_mesh( mesh );
+    }
 
     m_mesh_pipeline.shutdown( );
     g_ctx.shutdown( );
@@ -186,8 +185,14 @@ void Renderer::Run( ) {
     f64 avg_cpu_time = 0;
     f64 avg_gpu_time = 0;
 
+    for ( auto& draw : m_draws ) {
+        auto mesh = m_mesh_assets.at( draw.mesh );
+        for ( auto& meshlet : mesh.meshlets ) {
+            m_frame_triangles += meshlet.triangle_count;
+        }
+    }
+
     while ( !m_quit ) {
-        m_frame_triangles   = 0;
         auto cpu_time_start = get_time( );
 
         process_events( );
@@ -291,19 +296,13 @@ void Renderer::tick( u32 swapchain_image_idx ) {
 
     // Camera matrices
     ScenePushConstants pc{
-            .view              = m_camera.get_view_matrix( ),
-            .projection        = m_camera.get_projection_matrix( ),
-            .camera_position   = glm::vec4( m_camera.get_position( ), 1.0f ),
-            .draws_buffer      = m_draws_buffer.device_address,
-            .vertex_buffer     = m_mesh.vertex_buffer.device_address,
-            .meshlets_buffer   = m_mesh.meshlets_buffer.device_address,
-            .meshlet_vertices  = m_mesh.meshlets_vertices.device_address,
-            .meshlet_triangles = m_mesh.meshlets_triangles.device_address,
-            .meshlet_count     = u32( m_mesh.meshlets.size( ) ) };
+            .view            = m_camera.get_view_matrix( ),
+            .projection      = m_camera.get_projection_matrix( ),
+            .camera_position = glm::vec4( m_camera.get_position( ), 1.0f ),
+            .draws_buffer    = m_draws_buffer.device_address,
+            .meshes          = m_meshes_buffer.device_address,
+    };
 
-    for ( auto& meshlet : m_mesh.meshlets ) {
-        m_frame_triangles += meshlet.triangle_count * m_draws.size( );
-    }
     vkCmdPushConstants( cmd, m_mesh_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
     vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_commands.size( ), sizeof( VkDrawMeshTasksIndirectCommandEXT ) );
 
@@ -464,6 +463,47 @@ std::optional<MeshAsset> tl::load_mesh_from_file( const std::string& gltf_path, 
 
             mesh.min = glm::vec3( ai_mesh->mAABB.mMin.x, ai_mesh->mAABB.mMin.y, ai_mesh->mAABB.mMin.z );
             mesh.max = glm::vec3( ai_mesh->mAABB.mMax.x, ai_mesh->mAABB.mMax.y, ai_mesh->mAABB.mMax.z );
+
+            mesh.vertex_buffer = create_buffer( mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
+            mesh.index_buffer  = create_buffer( mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+
+            build_meshlets( mesh );
+            mesh.meshlets_buffer = create_buffer( mesh.meshlets.size( ) * sizeof( Meshlet ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
+
+            // upload mesh
+            upload_buffer_data( g_ctx.staging_buffer, mesh.vertices.data( ), mesh.vertex_buffer.size );
+            upload_buffer_data( g_ctx.staging_buffer, mesh.indices.data( ), mesh.index_buffer.size, mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
+            upload_buffer_data( g_ctx.staging_buffer, mesh.meshlets.data( ), mesh.meshlets_buffer.size, mesh.vertex_buffer.size + mesh.index_buffer.size );
+
+            {
+                auto& cmd = g_ctx.global_cmd;
+                VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
+                VKCALL( vkResetCommandBuffer( cmd, 0 ) );
+                begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
+
+                // Copy vertex and index buffer
+                const VkBufferCopy vertex_copy = {
+                        .srcOffset = 0,
+                        .dstOffset = 0,
+                        .size      = mesh.vertex_buffer.size };
+                const VkBufferCopy index_copy = {
+                        .srcOffset = mesh.vertex_buffer.size,
+                        .dstOffset = 0,
+                        .size      = mesh.index_buffer.size };
+                vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.vertex_buffer.buffer, 1, &vertex_copy );
+                vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.index_buffer.buffer, 1, &index_copy );
+
+                // Copy meshlets
+                const VkBufferCopy meshlets_copy = {
+                        .srcOffset = mesh.vertex_buffer.size + mesh.index_buffer.size,
+                        .dstOffset = 0,
+                        .size      = mesh.meshlets_buffer.size };
+                vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.meshlets_buffer.buffer, 1, &meshlets_copy );
+
+                VKCALL( vkEndCommandBuffer( cmd ) );
+                submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
+                VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
+            }
 
             return mesh;
         }
