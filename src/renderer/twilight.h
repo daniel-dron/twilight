@@ -100,9 +100,6 @@ namespace tl {
 
         u64 m_frame_triangles = 0; // how many triangles were drawn this frame
 
-        bool m_use_mesh_pipeline = true;
-
-        Pipeline m_pipeline;
         Pipeline m_mesh_pipeline;
 
         Buffer                                         m_command_buffer = { };

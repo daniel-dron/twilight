@@ -26,7 +26,6 @@
 #include "SDL_scancode.h"
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
-#include "glm/ext/matrix_clip_space.hpp"
 #include "r_resources.h"
 #include "renderer/r_resources.h"
 #include "types.h"
@@ -57,15 +56,6 @@ void Renderer::Initialize( ) {
             .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
-    } );
-    m_pipeline.initialize( PipelineConfig{
-            .name                 = "mesh",
-            .vertex               = "../shaders/mesh.vert.spv",
-            .pixel                = "../shaders/mesh.frag.spv",
-            .cull_mode            = VK_CULL_MODE_BACK_BIT,
-            .front_face           = VK_FRONT_FACE_CLOCKWISE,
-            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
-            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS, .size = sizeof( ScenePushConstants ) } },
     } );
 
     m_command_buffer = create_buffer( sizeof( VkDrawMeshTasksIndirectCommandEXT ) * 1000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
@@ -187,7 +177,6 @@ void Renderer::Shutdown( ) {
     destroy_buffer( m_draws_buffer );
     destroy_mesh( m_mesh );
 
-    m_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
     g_ctx.shutdown( );
     SDL_DestroyWindow( m_window );
@@ -259,7 +248,7 @@ void Renderer::Run( ) {
 
         f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
 
-        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; pipeline: {}", avg_cpu_time, avg_gpu_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, ( m_use_mesh_pipeline ? "meshlet" : "buffer" ) );
+        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec;", avg_cpu_time, avg_gpu_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9 );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -298,8 +287,7 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .extent = { .width = width, .height = height } };
     vkCmdSetScissor( cmd, 0, 1, &scissor );
 
-    Pipeline& pipeline = m_use_mesh_pipeline ? m_mesh_pipeline : m_pipeline;
-    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline );
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_mesh_pipeline.pipeline );
 
     // Camera matrices
     ScenePushConstants pc{
@@ -313,24 +301,12 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .meshlet_triangles = m_mesh.meshlets_triangles.device_address,
             .meshlet_count     = u32( m_mesh.meshlets.size( ) ) };
 
-    if ( m_use_mesh_pipeline ) {
-        for ( auto& meshlet : m_mesh.meshlets ) {
-            m_frame_triangles += meshlet.triangle_count * m_draws.size( );
-        }
-        vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-        vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_commands.size( ), sizeof( VkDrawMeshTasksIndirectCommandEXT ) );
+    for ( auto& meshlet : m_mesh.meshlets ) {
+        m_frame_triangles += meshlet.triangle_count * m_draws.size( );
     }
-    // else {
-    //     vkCmdBindIndexBuffer( cmd, m_mesh.index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
+    vkCmdPushConstants( cmd, m_mesh_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
+    vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_commands.size( ), sizeof( VkDrawMeshTasksIndirectCommandEXT ) );
 
-    //     for ( auto& draw : m_draws ) {
-    //         pc.model = draw.model;
-    //         vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof( ScenePushConstants ), &pc );
-
-    //         vkCmdDrawIndexed( cmd, ( u32 )m_mesh.indices.size( ), 1, 0, 0, 0 );
-    //         m_frame_triangles += m_mesh.indices.size( ) / 3;
-    //     }
-    // }
 
     vkCmdEndRendering( cmd );
 }
@@ -426,12 +402,6 @@ void Renderer::process_events( ) {
                 this->width  = event.window.data1;
                 this->height = event.window.data2;
                 g_ctx.resize( event.window.data1, event.window.data2, g_ctx.device, g_ctx.surface );
-            }
-        }
-
-        if ( event.type == SDL_KEYDOWN ) {
-            if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
-                m_use_mesh_pipeline = !m_use_mesh_pipeline;
             }
         }
 
