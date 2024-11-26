@@ -128,18 +128,25 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     assert( this->surface != VK_NULL_HANDLE );
 
     // Physical device
-    VkPhysicalDeviceVulkan13Features features_13{ .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-                                                  .synchronization2 = true,
-                                                  .dynamicRendering = true,
-                                                  .maintenance4     = true };
+    VkPhysicalDeviceVulkan13Features features_13{
+            .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .synchronization2 = true,
+            .dynamicRendering = true,
+            .maintenance4     = true,
+    };
     VkPhysicalDeviceVulkan12Features features_12{
             .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .storageBuffer8BitAccess = true,
             .hostQueryReset          = true,
-            .bufferDeviceAddress     = true };
-    VkPhysicalDeviceVulkan11Features features_11{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
-    VkPhysicalDeviceFeatures         features{
-                    .shaderInt64 = VK_TRUE,
+            .bufferDeviceAddress     = true,
+    };
+    VkPhysicalDeviceVulkan11Features features_11{
+            .sType                = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .shaderDrawParameters = VK_TRUE,
+    };
+    VkPhysicalDeviceFeatures features{
+            .shaderInt64       = VK_TRUE,
+            .multiDrawIndirect = VK_TRUE,
     };
 
 

@@ -16,6 +16,7 @@
 #include <optional>
 #include <renderer/r_shaders.h>
 #include <types.h>
+#include <vulkan/vulkan_core.h>
 #include "r_camera.h"
 #include "r_resources.h"
 
@@ -23,8 +24,8 @@ namespace tl {
     struct ScenePushConstants {
         glm::mat4 view;
         glm::mat4 projection;
-        glm::mat4 model;
         glm::vec4 camera_position;
+        u64       draws_buffer;
         u64       vertex_buffer;
         u64       meshlets_buffer;
         u64       meshlet_vertices;
@@ -51,7 +52,7 @@ namespace tl {
         f32 cone_cutoff;
     };
 
-    struct Mesh {
+    struct MeshAsset {
         std::vector<Vertex> vertices;
         std::vector<u32>    indices;
         Buffer              vertex_buffer;
@@ -66,13 +67,18 @@ namespace tl {
         glm::vec3 max;
     };
 
-    struct MeshDraw {
-        Mesh&     mesh;
-        glm::mat4 model;
+    struct Mesh {
+        VkDeviceAddress vertex_buffer;
+        VkDeviceAddress meshlet_buffer;
+        VkDeviceAddress meshlet_vertices;
+        VkDeviceAddress meshlet_triangles;
+        u64             meshlet_count;
     };
 
-    struct MeshDrawPushConstants {
+    struct Draw {
         glm::mat4 model;
+        u64       mesh;
+        u64       pad;
     };
 
     class Renderer {
@@ -99,15 +105,19 @@ namespace tl {
         Pipeline m_pipeline;
         Pipeline m_mesh_pipeline;
 
-        Camera                m_camera;
-        float                 move_speed = 30.0f;
+        Buffer                                         m_command_buffer = { };
+        std::vector<VkDrawMeshTasksIndirectCommandEXT> m_commands       = { };
+        Buffer                                         m_draws_buffer   = { };
+        std::vector<Draw>                              m_draws;
+
+        Camera    m_camera;
+        float     move_speed = 30.0f;
         // float                 move_speed = 0.005f;
-        Mesh                  m_mesh;
-        std::vector<MeshDraw> m_draws;
+        MeshAsset m_mesh;
     };
 
-    void                build_meshlets( Mesh& mesh );
-    std::optional<Mesh> load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name );
-    void                destroy_mesh( Mesh& mesh );
+    void                     build_meshlets( MeshAsset& mesh );
+    std::optional<MeshAsset> load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name );
+    void                     destroy_mesh( MeshAsset& mesh );
 
 } // namespace tl

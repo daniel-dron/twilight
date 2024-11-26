@@ -5,6 +5,7 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_mesh_shader : require
+#extension GL_ARB_gpu_shader_int64 : enable
 
 #include "vertex.glsl"
 
@@ -20,6 +21,16 @@ struct Meshlet {
     float cone_apex[3];
     float cone_axis[3];
     float cone_cutoff;
+};
+
+struct Draw {
+    mat4     model;
+    uint64_t mesh;
+    uint64_t pad;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer DrawsBuffer {
+    Draw draws[];
 };
 
 layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer VertexBuffer {
@@ -41,8 +52,8 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer M
 layout( push_constant, scalar ) uniform PushConstant {
     mat4             view;
     mat4             projection;
-    mat4             model;
     vec4             camera_position;
+    DrawsBuffer      draws_buffer;
     VertexBuffer     vertex_buffer;
     MeshletBuffer    meshlet_buffer;
     MeshletVertices  meshlet_vertices;
@@ -55,24 +66,9 @@ layout( location = 0 ) out vec3 color[];
 
 struct MeshTaskPayload {
     uint meshlet_indices[32];
+    uint draw_id;
 };
 taskPayloadSharedEXT MeshTaskPayload payload;
-
-uint murmurHash( uint idx ) {
-    uint m = 0x5bd1e995;
-    uint r = 24;
-
-    uint h = 64684;
-    uint k = idx;
-
-    k *= m;
-    k ^= ( k >> r );
-    k *= m;
-    h *= m;
-    h ^= k;
-
-    return h;
-}
 
 void main( ) {
     uint mid = payload.meshlet_indices[gl_WorkGroupID.x];
@@ -81,10 +77,12 @@ void main( ) {
 
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 
+    Draw draw = pc.draws_buffer.draws[payload.draw_id];
+
     for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
         uint   index = pc.meshlet_vertices.vertices[meshlet.vertex_offset + i];
         Vertex v     = pc.vertex_buffer.vertices[index];
-        vec4   pos   = pc.projection * pc.view * pc.model * vec4( v.vx, v.vy, v.vz, 1 );
+        vec4   pos   = pc.projection * pc.view * draw.model * vec4( v.vx, v.vy, v.vz, 1 );
         color[i]     = vec3( v.nx, v.ny, v.nz ) * 0.5 + 0.5;
 
         gl_MeshVerticesEXT[i].gl_Position = pos;
