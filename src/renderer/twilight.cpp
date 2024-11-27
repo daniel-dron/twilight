@@ -58,11 +58,16 @@ void Renderer::Initialize( ) {
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
 
-    m_command_buffer = create_buffer( sizeof( VkDrawMeshTasksIndirectCommandEXT ) * 2000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
-    m_draws_buffer   = create_buffer( sizeof( Draw ) * 2000, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_drawcmd_pipeline.initialize( PipelineConfig{
+            .name                 = "draw commands",
+            .compute              = "../shaders/drawcmd.comp.spv",
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
+
+    m_command_buffer = create_buffer( sizeof( VkDrawMeshTasksIndirectCommandEXT ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_draws_buffer   = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_meshes_buffer  = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
+    // m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( ) );
 
@@ -95,8 +100,8 @@ void Renderer::Initialize( ) {
         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
     }
 
-    u64 count  = 2000;
-    f32 radius = 50.0f;
+    u64 count  = m_draws_count;
+    f32 radius = 100.0f;
     m_draws.reserve( count );
 
     std::random_device                    rd;
@@ -119,7 +124,7 @@ void Renderer::Initialize( ) {
 
         float scale = scaleDist( gen );
         if ( mesh_id == 0 ) {
-            scale /= 100.0f;
+            // scale /= 100.0f;
         }
 
         glm::mat4 model = glm::mat4( 1.0f );
@@ -130,12 +135,6 @@ void Renderer::Initialize( ) {
         model           = glm::scale( model, glm::vec3( scale ) );
 
         m_draws.emplace_back( Draw{ model, mesh_id } );
-
-        VkDrawMeshTasksIndirectCommandEXT command = {
-                .groupCountX = u32( m_mesh_assets.at( mesh_id ).meshlets.size( ) + 31 ) / 32,
-                .groupCountY = 1,
-                .groupCountZ = 1 };
-        m_commands.emplace_back( command );
     }
 
     {
@@ -144,17 +143,10 @@ void Renderer::Initialize( ) {
         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
-        upload_buffer_data( g_ctx.staging_buffer, m_commands.data( ), sizeof( VkDrawMeshTasksIndirectCommandEXT ) * m_commands.size( ) );
-        upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( Draw ) * m_draws.size( ), sizeof( VkDrawMeshTasksIndirectCommandEXT ) * m_commands.size( ) );
-
-        const VkBufferCopy copy = {
-                .srcOffset = 0,
-                .dstOffset = 0,
-                .size      = sizeof( VkDrawMeshTasksIndirectCommandEXT ) * m_commands.size( ) };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_buffer.buffer, 1, &copy );
+        upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( Draw ) * m_draws.size( ) );
 
         const VkBufferCopy draws_copy = {
-                .srcOffset = sizeof( VkDrawMeshTasksIndirectCommandEXT ) * m_commands.size( ),
+                .srcOffset = 0,
                 .dstOffset = 0,
                 .size      = sizeof( Draw ) * m_draws.size( ) };
         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffer, 1, &draws_copy );
@@ -176,14 +168,16 @@ void Renderer::Shutdown( ) {
         destroy_mesh( mesh );
     }
 
+    m_drawcmd_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
     g_ctx.shutdown( );
     SDL_DestroyWindow( m_window );
 }
 
 void Renderer::Run( ) {
-    f64 avg_cpu_time = 0;
-    f64 avg_gpu_time = 0;
+    f64 avg_cpu_time  = 0;
+    f64 avg_gpu_time  = 0;
+    f64 avg_cull_time = 0;
 
     for ( auto& draw : m_draws ) {
         auto mesh = m_mesh_assets.at( draw.mesh );
@@ -214,6 +208,30 @@ void Renderer::Run( ) {
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
         vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 0 );
 
+        // Command Draws
+        {
+            vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 2 );
+            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
+            DrawCommandComputePushConstants pc{
+                    .draws  = m_draws_buffer.device_address,
+                    .cmds   = m_command_buffer.device_address,
+                    .meshes = m_meshes_buffer.device_address,
+                    .count  = m_draws.size( ) };
+            vkCmdPushConstants( cmd, m_drawcmd_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
+            vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
+
+            VkBufferMemoryBarrier barrier = {
+                    .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                    .pNext         = nullptr,
+                    .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                    .dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+                    .buffer        = m_command_buffer.buffer,
+                    .size          = m_command_buffer.size,
+            };
+            vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, 0, 1, &barrier, 0, 0 );
+            vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 3 );
+        }
+
         image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED,
                        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
@@ -243,17 +261,18 @@ void Renderer::Run( ) {
         VKCALL( vkQueuePresentKHR( g_ctx.graphics_queue, &present_info ) );
 
         // Timers
-        vkGetQueryPoolResults( g_ctx.device, frame.query_pool_timestamps, 0, u32( frame.gpu_timestamps.size( ) ), frame.gpu_timestamps.size( ) * sizeof( u64 ), frame.gpu_timestamps.data( ), sizeof( u64 ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
+        vkGetQueryPoolResults( g_ctx.device, frame.query_pool_timestamps, 0, 4, frame.gpu_timestamps.size( ) * sizeof( u64 ), frame.gpu_timestamps.data( ), sizeof( u64 ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
 
         g_ctx.current_frame++;
         auto cpu_time_end = get_time( );
 
-        avg_cpu_time = avg_cpu_time * 0.95 + ( ( cpu_time_end - cpu_time_start ) * 1000.0f ) * 0.05;
-        avg_gpu_time = avg_gpu_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[0], frame.gpu_timestamps[1] ) ) * 0.05f;
+        avg_cpu_time  = avg_cpu_time * 0.95 + ( ( cpu_time_end - cpu_time_start ) * 1000.0f ) * 0.05;
+        avg_gpu_time  = avg_gpu_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[0], frame.gpu_timestamps[1] ) ) * 0.05f;
+        avg_cull_time = avg_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[2], frame.gpu_timestamps[3] ) ) * 0.05f;
 
         f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
 
-        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec;", avg_cpu_time, avg_gpu_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9 );
+        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; cull: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; draws: {}", avg_cpu_time, avg_gpu_time, avg_cull_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, m_draws_count );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -304,8 +323,7 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     };
 
     vkCmdPushConstants( cmd, m_mesh_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-    vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_commands.size( ), sizeof( VkDrawMeshTasksIndirectCommandEXT ) );
-
+    vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_draws_count, sizeof( VkDrawMeshTasksIndirectCommandEXT ) );
 
     vkCmdEndRendering( cmd );
 }

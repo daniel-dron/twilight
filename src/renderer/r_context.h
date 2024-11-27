@@ -30,7 +30,7 @@ namespace tl {
         Image           depth;
 
         VkQueryPool        query_pool_timestamps = VK_NULL_HANDLE;
-        std::array<u64, 2> gpu_timestamps        = { 0 };
+        std::array<u64, 128> gpu_timestamps        = { 0 };
     };
 
     struct Context {

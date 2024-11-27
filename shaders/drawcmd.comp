@@ -1,0 +1,61 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_ARB_gpu_shader_int64 : enable
+
+layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
+
+struct Mesh {
+    uint64_t vertex_buffer;
+    uint64_t meshlet_buffer;
+    uint64_t meshlet_vertices;
+    uint64_t meshlet_triangles;
+    uint64_t meshlet_count;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {
+    Mesh meshes[];
+};
+
+struct Draw {
+    mat4     model;
+    uint64_t mesh;
+    uint64_t pad;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer DrawsBuffer {
+    Draw draws[];
+};
+
+struct VkDrawMeshTasksIndirectCommandEXT {
+    uint groupCountX;
+    uint groupCountY;
+    uint groupCountZ;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer CommandsBuffer {
+    VkDrawMeshTasksIndirectCommandEXT cmds[];
+};
+
+layout( push_constant, scalar ) uniform PushConstant {
+    DrawsBuffer    draws_buffer;
+    CommandsBuffer cmds_buffer;
+    MeshesBuffer   meshes_buffer;
+    uint64_t       count;
+}
+pc;
+
+void main( ) {
+    uint cmd_id = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x;
+
+    if ( cmd_id < pc.count ) {
+        Draw draw = pc.draws_buffer.draws[cmd_id];
+        Mesh mesh = pc.meshes_buffer.meshes[uint( draw.mesh )];
+
+        pc.cmds_buffer.cmds[cmd_id].groupCountX = uint( mesh.meshlet_count + 31 ) / 32;
+        pc.cmds_buffer.cmds[cmd_id].groupCountY = 1;
+        pc.cmds_buffer.cmds[cmd_id].groupCountZ = 1;
+    }
+}

@@ -21,6 +21,14 @@
 #include "r_resources.h"
 
 namespace tl {
+
+    struct DrawCommandComputePushConstants {
+        VkDeviceAddress draws;
+        VkDeviceAddress cmds;
+        VkDeviceAddress meshes;
+        u64             count;
+    };
+
     struct ScenePushConstants {
         glm::mat4 view;
         glm::mat4 projection;
@@ -97,11 +105,12 @@ namespace tl {
         u64 m_frame_triangles = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
+        Pipeline m_drawcmd_pipeline;
 
-        Buffer                                         m_command_buffer = { };
-        std::vector<VkDrawMeshTasksIndirectCommandEXT> m_commands       = { };
-        Buffer                                         m_draws_buffer   = { };
-        std::vector<Draw>                              m_draws          = { };
+        u64               m_draws_count    = 50000;
+        Buffer            m_command_buffer = { };
+        Buffer            m_draws_buffer   = { };
+        std::vector<Draw> m_draws          = { };
 
         Camera                 m_camera;
         float                  move_speed = 0.5f;
