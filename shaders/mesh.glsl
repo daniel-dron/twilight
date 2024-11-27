@@ -36,6 +36,8 @@ struct Mesh {
     MeshletVertices  meshlet_vertices;
     MeshletTriangles meshlet_triangles;
     uint64_t         meshlet_count;
+    vec3             center;
+    float            radius;
 };
 
 layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {

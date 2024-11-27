@@ -27,6 +27,7 @@ namespace tl {
         VkDeviceAddress cmds;
         VkDeviceAddress meshes;
         u64             count;
+        glm::vec4       frustum[6];
     };
 
     struct ScenePushConstants {
@@ -62,10 +63,16 @@ namespace tl {
         Buffer              vertex_buffer;
         Buffer              index_buffer;
 
+        struct Bounds {
+            glm::vec3 center;
+            f32       radius;
+        } bounds;
+
         std::vector<Meshlet> meshlets;
         Buffer               meshlets_buffer;
         Buffer               meshlets_vertices;
         Buffer               meshlets_triangles;
+        u64                  vertex_count_total;
 
         glm::vec3 min;
         glm::vec3 max;
@@ -77,6 +84,8 @@ namespace tl {
         VkDeviceAddress meshlet_vertices;
         VkDeviceAddress meshlet_triangles;
         u64             meshlet_count;
+        glm::vec3       center;
+        f32             radius;
     };
 
     struct Draw {
@@ -107,7 +116,7 @@ namespace tl {
         Pipeline m_mesh_pipeline;
         Pipeline m_drawcmd_pipeline;
 
-        u64               m_draws_count    = 50000;
+        u64               m_draws_count    = 10000;
         Buffer            m_command_buffer = { };
         Buffer            m_draws_buffer   = { };
         std::vector<Draw> m_draws          = { };

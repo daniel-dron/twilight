@@ -5,8 +5,8 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_ARB_gpu_shader_int64 : enable
 
-#include "mesh.glsl"
 #include "draws.glsl"
+#include "mesh.glsl"
 
 layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 
@@ -20,25 +20,40 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer CommandsBu
     VkDrawMeshTasksIndirectCommandEXT cmds[];
 };
 
-layout( push_constant, scalar ) uniform PushConstant {
+layout( push_constant, scalar ) uniform block {
     DrawsBuffer    draws_buffer;
     CommandsBuffer cmds_buffer;
     MeshesBuffer   meshes_buffer;
     uint64_t       count;
-}
-pc;
+    vec4           frustum[6];
+};
 
 void main( ) {
     // TODO: draw commands arent being packed...
 
     uint cmd_id = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x;
 
-    if ( cmd_id < pc.count ) {
-        Draw draw = pc.draws_buffer.draws[cmd_id];
-        Mesh mesh = pc.meshes_buffer.meshes[uint( draw.mesh )];
+    if ( cmd_id < count ) {
+        Draw draw = draws_buffer.draws[cmd_id];
+        Mesh mesh = meshes_buffer.meshes[uint( draw.mesh )];
 
-        pc.cmds_buffer.cmds[cmd_id].groupCountX = uint( mesh.meshlet_count + 31 ) / 32;
-        pc.cmds_buffer.cmds[cmd_id].groupCountY = 1;
-        pc.cmds_buffer.cmds[cmd_id].groupCountZ = 1;
+        vec3  center = vec3( draw.model * vec4( mesh.center, 1.0f ) );
+        float radius = mesh.radius * length( draw.model[0].xyz );
+
+        bool visible = true;
+        for ( int i = 0; i < 6; i++ ) {
+            visible = visible && ( ( dot( frustum[i], vec4( center, 1.0f ) ) ) > -radius );
+        }
+
+        if ( visible ) {
+            cmds_buffer.cmds[cmd_id].groupCountX = uint( mesh.meshlet_count + 31 ) / 32;
+            cmds_buffer.cmds[cmd_id].groupCountY = 1;
+            cmds_buffer.cmds[cmd_id].groupCountZ = 1;
+        }
+        else {
+            cmds_buffer.cmds[cmd_id].groupCountX = 0;
+            cmds_buffer.cmds[cmd_id].groupCountY = 0;
+            cmds_buffer.cmds[cmd_id].groupCountZ = 0;
+        }
     }
 }

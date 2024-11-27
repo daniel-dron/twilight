@@ -69,6 +69,22 @@ namespace tl {
         return m_projection_matrix;
     }
 
+    Frustum Camera::get_frustum( ) {
+        if ( m_dirtyMatrices ) {
+            _update_matrices( );
+        }
+
+        Frustum frustum;
+        frustum.planes[0] = m_frustum[0];
+        frustum.planes[1] = m_frustum[1];
+        frustum.planes[2] = m_frustum[2];
+        frustum.planes[3] = m_frustum[3];
+        frustum.planes[4] = m_frustum[4];
+        frustum.planes[5] = m_frustum[5];
+
+        return frustum;
+    }
+
     void Camera::_update_vectors( ) {
         m_front.x = cos( glm::radians( m_yaw ) ) * cos( glm::radians( m_pitch ) );
         m_front.y = sin( glm::radians( m_pitch ) );
@@ -92,7 +108,55 @@ namespace tl {
         m_projection_matrix = glm::perspective( glm::radians( m_fov ), m_aspect_ratio, m_near_plane, m_far_plane );
         m_projection_matrix[1][1] *= -1;
 
+        _update_frustum( );
+
         m_dirtyMatrices = false;
+    }
+
+    void Camera::_update_frustum( ) {
+        glm::mat4 matrix = m_projection_matrix * m_view_matrix;
+
+        enum side { LEFT   = 0,
+                    RIGHT  = 1,
+                    TOP    = 2,
+                    BOTTOM = 3,
+                    BACK   = 4,
+                    FRONT  = 5 };
+
+        m_frustum[LEFT].x = matrix[0].w + matrix[0].x;
+        m_frustum[LEFT].y = matrix[1].w + matrix[1].x;
+        m_frustum[LEFT].z = matrix[2].w + matrix[2].x;
+        m_frustum[LEFT].w = matrix[3].w + matrix[3].x;
+
+        m_frustum[RIGHT].x = matrix[0].w - matrix[0].x;
+        m_frustum[RIGHT].y = matrix[1].w - matrix[1].x;
+        m_frustum[RIGHT].z = matrix[2].w - matrix[2].x;
+        m_frustum[RIGHT].w = matrix[3].w - matrix[3].x;
+
+        m_frustum[TOP].x = matrix[0].w - matrix[0].y;
+        m_frustum[TOP].y = matrix[1].w - matrix[1].y;
+        m_frustum[TOP].z = matrix[2].w - matrix[2].y;
+        m_frustum[TOP].w = matrix[3].w - matrix[3].y;
+
+        m_frustum[BOTTOM].x = matrix[0].w + matrix[0].y;
+        m_frustum[BOTTOM].y = matrix[1].w + matrix[1].y;
+        m_frustum[BOTTOM].z = matrix[2].w + matrix[2].y;
+        m_frustum[BOTTOM].w = matrix[3].w + matrix[3].y;
+
+        m_frustum[BACK].x = matrix[0].w + matrix[0].z;
+        m_frustum[BACK].y = matrix[1].w + matrix[1].z;
+        m_frustum[BACK].z = matrix[2].w + matrix[2].z;
+        m_frustum[BACK].w = matrix[3].w + matrix[3].z;
+
+        m_frustum[FRONT].x = matrix[0].w - matrix[0].z;
+        m_frustum[FRONT].y = matrix[1].w - matrix[1].z;
+        m_frustum[FRONT].z = matrix[2].w - matrix[2].z;
+        m_frustum[FRONT].w = matrix[3].w - matrix[3].z;
+
+        for ( auto i = 0; i < 6; i++ ) {
+            float length = sqrtf( m_frustum[i].x * m_frustum[i].x + m_frustum[i].y * m_frustum[i].y + m_frustum[i].z * m_frustum[i].z );
+            m_frustum[i] /= length;
+        }
     }
 
 } // namespace tl

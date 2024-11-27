@@ -67,7 +67,7 @@ void Renderer::Initialize( ) {
     m_draws_buffer   = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_meshes_buffer  = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    // m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
+    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( ) );
 
@@ -77,7 +77,10 @@ void Renderer::Initialize( ) {
                 .meshlet_buffer    = mesh_asset.meshlets_buffer.device_address,
                 .meshlet_vertices  = mesh_asset.meshlets_vertices.device_address,
                 .meshlet_triangles = mesh_asset.meshlets_triangles.device_address,
-                .meshlet_count     = mesh_asset.meshlets.size( ) };
+                .meshlet_count     = mesh_asset.meshlets.size( ),
+                .center            = mesh_asset.bounds.center,
+                .radius            = mesh_asset.bounds.radius,
+        };
         m_meshes.emplace_back( mesh );
     }
 
@@ -124,7 +127,7 @@ void Renderer::Initialize( ) {
 
         float scale = scaleDist( gen );
         if ( mesh_id == 0 ) {
-            // scale /= 100.0f;
+            scale /= 100.0f;
         }
 
         glm::mat4 model = glm::mat4( 1.0f );
@@ -180,10 +183,8 @@ void Renderer::Run( ) {
     f64 avg_cull_time = 0;
 
     for ( auto& draw : m_draws ) {
-        auto mesh = m_mesh_assets.at( draw.mesh );
-        for ( auto& meshlet : mesh.meshlets ) {
-            m_frame_triangles += meshlet.triangle_count;
-        }
+        auto& mesh = m_mesh_assets.at( draw.mesh );
+        m_frame_triangles += mesh.vertex_count_total;
     }
 
     while ( !m_quit ) {
@@ -212,11 +213,22 @@ void Renderer::Run( ) {
         {
             vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 2 );
             vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
+
+            auto frustum = m_camera.get_frustum( );
+
             DrawCommandComputePushConstants pc{
-                    .draws  = m_draws_buffer.device_address,
-                    .cmds   = m_command_buffer.device_address,
-                    .meshes = m_meshes_buffer.device_address,
-                    .count  = m_draws.size( ) };
+                    .draws   = m_draws_buffer.device_address,
+                    .cmds    = m_command_buffer.device_address,
+                    .meshes  = m_meshes_buffer.device_address,
+                    .count   = m_draws.size( ),
+                    .frustum = {
+                            frustum.planes[0],
+                            frustum.planes[1],
+                            frustum.planes[2],
+                            frustum.planes[3],
+                            frustum.planes[4],
+                            frustum.planes[5],
+                    } };
             vkCmdPushConstants( cmd, m_drawcmd_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
             vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
 
@@ -378,6 +390,8 @@ void tl::build_meshlets( MeshAsset& mesh ) {
 
         meshlet.cone_cutoff = bounds.cone_cutoff;
 
+        mesh.vertex_count_total += meshlet.vertex_count;
+
         mesh.meshlets.push_back( meshlet );
     }
 
@@ -479,8 +493,13 @@ std::optional<MeshAsset> tl::load_mesh_from_file( const std::string& gltf_path, 
                 mesh.indices.emplace_back( face.mIndices[2] );
             }
 
+            // bounding box
             mesh.min = glm::vec3( ai_mesh->mAABB.mMin.x, ai_mesh->mAABB.mMin.y, ai_mesh->mAABB.mMin.z );
             mesh.max = glm::vec3( ai_mesh->mAABB.mMax.x, ai_mesh->mAABB.mMax.y, ai_mesh->mAABB.mMax.z );
+
+            // bounding sphere
+            mesh.bounds.center = ( mesh.min + mesh.max ) * 0.5f;
+            mesh.bounds.radius = glm::length( mesh.max - mesh.bounds.center );
 
             mesh.vertex_buffer = create_buffer( mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
             mesh.index_buffer  = create_buffer( mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );

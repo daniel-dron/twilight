@@ -16,6 +16,10 @@
 #include <types.h>
 
 namespace tl {
+    struct Frustum {
+        glm::vec4 planes[6];
+    };
+
     class Camera {
     public:
         Camera( ) {};
@@ -31,10 +35,14 @@ namespace tl {
 
         const glm::mat4& get_view_matrix( );
         const glm::mat4& get_projection_matrix( );
+        Frustum          get_frustum( );
 
     private:
         void _update_vectors( );
         void _update_matrices( );
+        void _update_frustum( );
+
+        glm::vec4 m_frustum[6];
 
         glm::vec3 m_position = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_front    = GLOBAL_FRONT;
