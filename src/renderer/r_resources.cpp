@@ -164,6 +164,25 @@ void tl::image_barrier( VkCommandBuffer cmd, VkImage image, VkPipelineStageFlags
     vkCmdPipelineBarrier2( cmd, &dependency_info );
 }
 
+void tl::buffer_barrier( VkCommandBuffer cmd, VkBuffer buffer, u64 size, VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access ) {
+    VkBufferMemoryBarrier2 buffer_barrier{
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            .pNext         = nullptr,
+            .srcAccessMask = src_access,
+            .dstAccessMask = dst_access,
+            .buffer        = buffer,
+            .size          = size,
+    };
+
+    const VkDependencyInfo dependency_info{
+            .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext                    = nullptr,
+            .bufferMemoryBarrierCount = 1,
+            .pBufferMemoryBarriers    = &buffer_barrier,
+    };
+    vkCmdPipelineBarrier2( cmd, &dependency_info );
+}
+
 VkDescriptorPool tl::create_descriptor_pool( const VkDescriptorPoolSize* sizes, u32 pool_size, u32 max_sets ) {
     VkDescriptorPool pool{ };
 

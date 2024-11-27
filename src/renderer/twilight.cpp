@@ -225,15 +225,7 @@ void Renderer::Run( ) {
                     .size      = sizeof( u32 ) };
             vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
 
-            VkBufferMemoryBarrier barrier_count = {
-                    .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                    .pNext         = nullptr,
-                    .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                    .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-                    .buffer        = m_command_count_buffer.buffer,
-                    .size          = m_command_count_buffer.size,
-            };
-            vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier_count, 0, 0 );
+            buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
             vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
             DrawCommandComputePushConstants pc{
@@ -260,15 +252,8 @@ void Renderer::Run( ) {
             vkCmdPushConstants( cmd, m_drawcmd_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
             vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
 
-            VkBufferMemoryBarrier barrier = {
-                    .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                    .pNext         = nullptr,
-                    .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                    .dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
-                    .buffer        = m_command_buffer.buffer,
-                    .size          = m_command_buffer.size,
-            };
-            vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0, 0, 1, &barrier, 0, 0 );
+            buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+
             vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 3 );
         }
 
