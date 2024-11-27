@@ -67,7 +67,7 @@ void Renderer::Initialize( ) {
     m_draws_buffer   = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_meshes_buffer  = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
+    // m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( ) );
 
@@ -127,7 +127,7 @@ void Renderer::Initialize( ) {
 
         float scale = scaleDist( gen );
         if ( mesh_id == 0 ) {
-            scale /= 100.0f;
+            // scale /= 100.0f;
         }
 
         glm::mat4 model = glm::mat4( 1.0f );
@@ -214,21 +214,25 @@ void Renderer::Run( ) {
             vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 2 );
             vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
 
-            auto frustum = m_camera.get_frustum( );
-
             DrawCommandComputePushConstants pc{
-                    .draws   = m_draws_buffer.device_address,
-                    .cmds    = m_command_buffer.device_address,
-                    .meshes  = m_meshes_buffer.device_address,
-                    .count   = m_draws.size( ),
-                    .frustum = {
-                            frustum.planes[0],
-                            frustum.planes[1],
-                            frustum.planes[2],
-                            frustum.planes[3],
-                            frustum.planes[4],
-                            frustum.planes[5],
-                    } };
+                    .draws  = m_draws_buffer.device_address,
+                    .cmds   = m_command_buffer.device_address,
+                    .meshes = m_meshes_buffer.device_address,
+                    .count  = m_draws.size( ) };
+
+            if ( !m_freeze_frustum ) {
+                m_current_frustum = m_camera.get_frustum( );
+            }
+
+            if ( m_culling ) {
+                pc.frustum[0] = m_current_frustum.planes[0];
+                pc.frustum[1] = m_current_frustum.planes[1];
+                pc.frustum[2] = m_current_frustum.planes[2];
+                pc.frustum[3] = m_current_frustum.planes[3];
+                pc.frustum[4] = m_current_frustum.planes[4];
+                pc.frustum[5] = m_current_frustum.planes[5];
+            }
+
             vkCmdPushConstants( cmd, m_drawcmd_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
             vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
 
@@ -284,7 +288,8 @@ void Renderer::Run( ) {
 
         f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
 
-        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; cull: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; draws: {}", avg_cpu_time, avg_gpu_time, avg_cull_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, m_draws_count );
+        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; cull: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; draws: {}; culling: {}{};",
+                                  avg_cpu_time, avg_gpu_time, avg_cull_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, m_draws_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "" );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -433,6 +438,15 @@ void Renderer::process_events( ) {
                 this->width  = event.window.data1;
                 this->height = event.window.data2;
                 g_ctx.resize( event.window.data1, event.window.data2, g_ctx.device, g_ctx.surface );
+            }
+        }
+
+        if ( event.type == SDL_KEYDOWN ) {
+            if ( event.key.keysym.scancode == SDL_SCANCODE_C ) {
+                m_culling = !m_culling;
+            }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_F ) {
+                m_freeze_frustum = !m_freeze_frustum;
             }
         }
 

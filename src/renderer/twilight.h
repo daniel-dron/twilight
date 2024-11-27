@@ -111,7 +111,10 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
-        u64 m_frame_triangles = 0; // how many triangles were drawn this frame
+        bool    m_culling         = true;
+        bool    m_freeze_frustum  = false;
+        Frustum m_current_frustum = { };
+        u64     m_frame_triangles = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
         Pipeline m_drawcmd_pipeline;
