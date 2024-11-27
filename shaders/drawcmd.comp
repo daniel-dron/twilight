@@ -5,29 +5,10 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_ARB_gpu_shader_int64 : enable
 
+#include "mesh.glsl"
+#include "draws.glsl"
+
 layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
-
-struct Mesh {
-    uint64_t vertex_buffer;
-    uint64_t meshlet_buffer;
-    uint64_t meshlet_vertices;
-    uint64_t meshlet_triangles;
-    uint64_t meshlet_count;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {
-    Mesh meshes[];
-};
-
-struct Draw {
-    mat4     model;
-    uint64_t mesh;
-    uint64_t pad;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer DrawsBuffer {
-    Draw draws[];
-};
 
 struct VkDrawMeshTasksIndirectCommandEXT {
     uint groupCountX;
@@ -48,6 +29,8 @@ layout( push_constant, scalar ) uniform PushConstant {
 pc;
 
 void main( ) {
+    // TODO: draw commands arent being packed...
+
     uint cmd_id = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x;
 
     if ( cmd_id < pc.count ) {

@@ -1,46 +1,12 @@
 #version 460
 
+#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_mesh_shader : require
-#extension GL_ARB_gpu_shader_int64 : require
 
-struct Meshlet {
-    uint vertex_offset;
-    uint triangle_offset;
-    uint vertex_count;
-    uint triangle_count;
-
-    float cone_apex[3];
-    float cone_axis[3];
-    float cone_cutoff;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletBuffer {
-    Meshlet meshlets[];
-};
-
-struct Draw {
-    mat4     model;
-    uint64_t mesh;
-    uint64_t pad;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer DrawsBuffer {
-    Draw draws[];
-};
-
-struct Mesh {
-    uint64_t      vertex_buffer;
-    MeshletBuffer meshlet_buffer;
-    uint64_t      meshlet_vertices;
-    uint64_t      meshlet_triangles;
-    uint64_t      meshlet_count;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {
-    Mesh meshes[];
-};
+#include "draws.glsl"
+#include "mesh.glsl"
 
 layout( push_constant, scalar ) uniform PushConstant {
     mat4         view;
@@ -90,13 +56,13 @@ void main( ) {
         // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
         Meshlet meshlet = mesh.meshlet_buffer.meshlets[mid];
 
-        vec4 apex                      = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
-        vec3 view_direction            = normalize( pc.camera_position.xyz - apex.xyz );
-        vec4 cone_axis                 = vec4( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2], 1.0f );
-        // if ( !cone_cull( view_direction, cone_axis.xyz, meshlet.cone_cutoff, draw.model ) ) {
-        uint index                     = atomicAdd( meshlet_count, 1 );
-        payload.meshlet_indices[index] = mid;
-        // }
+        vec4 apex           = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
+        vec3 view_direction = normalize( pc.camera_position.xyz - apex.xyz );
+        vec4 cone_axis      = vec4( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2], 1.0f );
+        if ( !cone_cull( view_direction, cone_axis.xyz, meshlet.cone_cutoff, draw.model ) ) {
+            uint index                     = atomicAdd( meshlet_count, 1 );
+            payload.meshlet_indices[index] = mid;
+        }
     }
 
     memoryBarrier( );

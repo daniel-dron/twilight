@@ -3,63 +3,14 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_buffer_reference : require
-#extension GL_EXT_shader_8bit_storage : require
 #extension GL_EXT_mesh_shader : require
 #extension GL_ARB_gpu_shader_int64 : enable
 
-#include "vertex.glsl"
+#include "mesh.glsl"
+#include "draws.glsl"
 
 layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 layout( triangles, max_vertices = 64, max_primitives = 126 ) out;
-
-struct Meshlet {
-    uint vertex_offset;
-    uint triangle_offset;
-    uint vertex_count;
-    uint triangle_count;
-
-    float cone_apex[3];
-    float cone_axis[3];
-    float cone_cutoff;
-};
-
-struct Draw {
-    mat4     model;
-    uint64_t mesh;
-    uint64_t pad;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer DrawsBuffer {
-    Draw draws[];
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer VertexBuffer {
-    Vertex vertices[];
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletBuffer {
-    Meshlet meshlets[];
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletVertices {
-    uint vertices[];
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshletTriangles {
-    uint8_t triangles[];
-};
-
-struct Mesh {
-    VertexBuffer     vertex_buffer;
-    MeshletBuffer    meshlet_buffer;
-    MeshletVertices  meshlet_vertices;
-    MeshletTriangles meshlet_triangles;
-    uint64_t         meshlet_count;
-};
-
-layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {
-    Mesh meshes[];
-};
 
 layout( push_constant, scalar ) uniform PushConstant {
     mat4         view;
