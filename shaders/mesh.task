@@ -8,14 +8,25 @@
 #include "draws.glsl"
 #include "mesh.glsl"
 
-layout( push_constant, scalar ) uniform PushConstant {
-    mat4         view;
-    mat4         projection;
-    vec4         camera_position;
-    DrawsBuffer  draws_buffer;
-    MeshesBuffer meshes_buffer;
-}
-pc;
+struct DrawMeshTaskCommand {
+    uint groupCountX;
+    uint groupCountY;
+    uint groupCountZ;
+    uint draw_id;
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer CommandsBuffer {
+    DrawMeshTaskCommand cmds[];
+};
+
+layout( push_constant, scalar ) uniform block {
+    mat4           view;
+    mat4           projection;
+    vec4           camera_position;
+    DrawsBuffer    draws_buffer;
+    MeshesBuffer   meshes_buffer;
+    CommandsBuffer cmds_buffer;
+};
 
 layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 
@@ -36,10 +47,12 @@ bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff, mat4 mod
 }
 
 void main( ) {
-    Draw draw       = pc.draws_buffer.draws[gl_DrawID];
-    payload.draw_id = gl_DrawID;
+    DrawMeshTaskCommand cmd = cmds_buffer.cmds[gl_DrawID];
 
-    Mesh mesh = pc.meshes_buffer.meshes[uint( draw.mesh )];
+    Draw draw       = draws_buffer.draws[cmd.draw_id];
+    payload.draw_id = cmd.draw_id;
+
+    Mesh mesh = meshes_buffer.meshes[uint( draw.mesh )];
 
     uint wg = gl_WorkGroupID.x;
     uint ti = gl_LocalInvocationID.x;
@@ -57,7 +70,7 @@ void main( ) {
         Meshlet meshlet = mesh.meshlet_buffer.meshlets[mid];
 
         vec4 apex           = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
-        vec3 view_direction = normalize( pc.camera_position.xyz - apex.xyz );
+        vec3 view_direction = normalize( camera_position.xyz - apex.xyz );
         vec4 cone_axis      = vec4( meshlet.cone_axis[0], meshlet.cone_axis[1], meshlet.cone_axis[2], 1.0f );
         if ( !cone_cull( view_direction, cone_axis.xyz, meshlet.cone_cutoff, draw.model ) ) {
             uint index                     = atomicAdd( meshlet_count, 1 );

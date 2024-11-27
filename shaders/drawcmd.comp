@@ -10,14 +10,19 @@
 
 layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 
-struct VkDrawMeshTasksIndirectCommandEXT {
+struct DrawMeshTaskCommand {
     uint groupCountX;
     uint groupCountY;
     uint groupCountZ;
+    uint draw_id;
 };
 
 layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer CommandsBuffer {
-    VkDrawMeshTasksIndirectCommandEXT cmds[];
+    DrawMeshTaskCommand cmds[];
+};
+
+layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer DrawCount {
+    uint count;
 };
 
 layout( push_constant, scalar ) uniform block {
@@ -25,12 +30,11 @@ layout( push_constant, scalar ) uniform block {
     CommandsBuffer cmds_buffer;
     MeshesBuffer   meshes_buffer;
     uint64_t       count;
+    DrawCount      draw_count_buffer;
     vec4           frustum[6];
 };
 
 void main( ) {
-    // TODO: draw commands arent being packed...
-
     uint cmd_id = gl_WorkGroupID.x * 32 + gl_LocalInvocationID.x;
 
     if ( cmd_id < count ) {
@@ -46,14 +50,12 @@ void main( ) {
         }
 
         if ( visible ) {
-            cmds_buffer.cmds[cmd_id].groupCountX = uint( mesh.meshlet_count + 31 ) / 32;
-            cmds_buffer.cmds[cmd_id].groupCountY = 1;
-            cmds_buffer.cmds[cmd_id].groupCountZ = 1;
-        }
-        else {
-            cmds_buffer.cmds[cmd_id].groupCountX = 0;
-            cmds_buffer.cmds[cmd_id].groupCountY = 0;
-            cmds_buffer.cmds[cmd_id].groupCountZ = 0;
+            uint id = atomicAdd( draw_count_buffer.count, 1 );
+
+            cmds_buffer.cmds[id].groupCountX = uint( mesh.meshlet_count + 31 ) / 32;
+            cmds_buffer.cmds[id].groupCountY = 1;
+            cmds_buffer.cmds[id].groupCountZ = 1;
+            cmds_buffer.cmds[id].draw_id     = cmd_id;
         }
     }
 }

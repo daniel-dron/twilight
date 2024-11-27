@@ -63,9 +63,10 @@ void Renderer::Initialize( ) {
             .compute              = "../shaders/drawcmd.comp.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
-    m_command_buffer = create_buffer( sizeof( VkDrawMeshTasksIndirectCommandEXT ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_draws_buffer   = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_meshes_buffer  = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_meshes_buffer        = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     // m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
     m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( ) );
@@ -104,7 +105,7 @@ void Renderer::Initialize( ) {
     }
 
     u64 count  = m_draws_count;
-    f32 radius = 100.0f;
+    f32 radius = 500.0f;
     m_draws.reserve( count );
 
     std::random_device                    rd;
@@ -166,6 +167,7 @@ void Renderer::Shutdown( ) {
     destroy_buffer( m_command_buffer );
     destroy_buffer( m_draws_buffer );
     destroy_buffer( m_meshes_buffer );
+    destroy_buffer( m_command_count_buffer );
 
     for ( auto& mesh : m_mesh_assets ) {
         destroy_mesh( mesh );
@@ -212,13 +214,35 @@ void Renderer::Run( ) {
         // Command Draws
         {
             vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 2 );
-            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
 
+            // Reset command count buffer to 0 (using a staging buffer)
+            u32 count = 0;
+            upload_buffer_data( g_ctx.staging_buffer, &count, sizeof( u32 ) );
+
+            const VkBufferCopy copy = {
+                    .srcOffset = 0,
+                    .dstOffset = 0,
+                    .size      = sizeof( u32 ) };
+            vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
+
+            VkBufferMemoryBarrier barrier_count = {
+                    .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                    .pNext         = nullptr,
+                    .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+                    .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+                    .buffer        = m_command_count_buffer.buffer,
+                    .size          = m_command_count_buffer.size,
+            };
+            vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 1, &barrier_count, 0, 0 );
+
+            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
             DrawCommandComputePushConstants pc{
-                    .draws  = m_draws_buffer.device_address,
-                    .cmds   = m_command_buffer.device_address,
-                    .meshes = m_meshes_buffer.device_address,
-                    .count  = m_draws.size( ) };
+                    .draws             = m_draws_buffer.device_address,
+                    .cmds              = m_command_buffer.device_address,
+                    .meshes            = m_meshes_buffer.device_address,
+                    .count             = m_draws.size( ),
+                    .draw_count_buffer = m_command_count_buffer.device_address,
+            };
 
             if ( !m_freeze_frustum ) {
                 m_current_frustum = m_camera.get_frustum( );
@@ -337,10 +361,12 @@ void Renderer::tick( u32 swapchain_image_idx ) {
             .camera_position = glm::vec4( m_camera.get_position( ), 1.0f ),
             .draws_buffer    = m_draws_buffer.device_address,
             .meshes          = m_meshes_buffer.device_address,
+            .draw_cmds       = m_command_buffer.device_address,
     };
 
     vkCmdPushConstants( cmd, m_mesh_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-    vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_draws_count, sizeof( VkDrawMeshTasksIndirectCommandEXT ) );
+    // vkCmdDrawMeshTasksIndirectEXT( cmd, m_command_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
+    vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
 
     vkCmdEndRendering( cmd );
 }

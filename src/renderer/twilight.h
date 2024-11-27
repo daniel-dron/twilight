@@ -27,7 +27,15 @@ namespace tl {
         VkDeviceAddress cmds;
         VkDeviceAddress meshes;
         u64             count;
+        VkDeviceAddress draw_count_buffer;
         glm::vec4       frustum[6];
+    };
+
+    struct DrawMeshTaskCommand {
+        u32 x;
+        u32 y;
+        u32 z;
+        u32 draw_id;
     };
 
     struct ScenePushConstants {
@@ -36,6 +44,7 @@ namespace tl {
         glm::vec4 camera_position;
         u64       draws_buffer;
         u64       meshes;
+        u64       draw_cmds;
     };
 
     struct Vertex {
@@ -119,10 +128,11 @@ namespace tl {
         Pipeline m_mesh_pipeline;
         Pipeline m_drawcmd_pipeline;
 
-        u64               m_draws_count    = 10000;
-        Buffer            m_command_buffer = { };
-        Buffer            m_draws_buffer   = { };
-        std::vector<Draw> m_draws          = { };
+        u64               m_draws_count          = 1'000'000;
+        Buffer            m_command_buffer       = { };
+        Buffer            m_draws_buffer         = { };
+        std::vector<Draw> m_draws                = { };
+        Buffer            m_command_count_buffer = { };
 
         Camera                 m_camera;
         float                  move_speed = 0.5f;
