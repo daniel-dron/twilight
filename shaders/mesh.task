@@ -8,6 +8,14 @@
 #include "draws.glsl"
 #include "mesh.glsl"
 
+bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff, mat4 model ) {
+    vec4 transformed_cone_axis = model * vec4( cone_axis, 0.0f );
+    transformed_cone_axis      = normalize( transformed_cone_axis );
+
+    float dot_product = dot( view_direction, transformed_cone_axis.xyz );
+    return dot_product >= cone_cutoff;
+}
+
 struct DrawMeshTaskCommand {
     uint groupCountX;
     uint groupCountY;
@@ -20,15 +28,16 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer CommandsBu
 };
 
 layout( push_constant, scalar ) uniform block {
-    mat4           view;
-    mat4           projection;
-    vec4           camera_position;
-    DrawsBuffer    draws_buffer;
-    MeshesBuffer   meshes_buffer;
-    CommandsBuffer cmds_buffer;
+    mat4              view;
+    mat4              projection;
+    vec4              camera_position;
+    DrawsBuffer       draws_buffer;
+    MeshesBuffer      meshes_buffer;
+    MeshletBuffer     meshlets_buffer;
+    MeshletDataBuffer meshlets_data_buffer;
+    VertexBuffer      vertex_buffer;
+    CommandsBuffer    cmds_buffer;
 };
-
-layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 
 struct MeshTaskPayload {
     uint meshlet_indices[32];
@@ -38,14 +47,7 @@ taskPayloadSharedEXT MeshTaskPayload payload;
 
 shared uint meshlet_count;
 
-bool cone_cull( vec3 view_direction, vec3 cone_axis, float cone_cutoff, mat4 model ) {
-    vec4 transformed_cone_axis = model * vec4( cone_axis, 0.0f );
-    transformed_cone_axis      = normalize( transformed_cone_axis );
-
-    float dot_product = dot( view_direction, transformed_cone_axis.xyz );
-    return dot_product >= cone_cutoff;
-}
-
+layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 void main( ) {
     DrawMeshTaskCommand cmd = cmds_buffer.cmds[gl_DrawID];
 
@@ -67,7 +69,7 @@ void main( ) {
     if ( mid < mesh.meshlet_count ) {
 
         // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
-        Meshlet meshlet = mesh.meshlet_buffer.meshlets[mid];
+        Meshlet meshlet = meshlets_buffer.meshlets[mesh.meshlet_index + mid];
 
         vec4 apex           = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
         vec3 view_direction = normalize( camera_position.xyz - apex.xyz );

@@ -66,43 +66,13 @@ void Renderer::Initialize( ) {
     m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_meshes_buffer        = create_buffer( sizeof( Mesh ) * 100, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     // m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
-    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot" ).value( ) );
-    m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001" ).value( ) );
+    load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
+    load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
-    for ( auto& mesh_asset : m_mesh_assets ) {
-        Mesh mesh{
-                .vertex_buffer     = mesh_asset.vertex_buffer.device_address,
-                .meshlet_buffer    = mesh_asset.meshlets_buffer.device_address,
-                .meshlet_vertices  = mesh_asset.meshlets_vertices.device_address,
-                .meshlet_triangles = mesh_asset.meshlets_triangles.device_address,
-                .meshlet_count     = mesh_asset.meshlets.size( ),
-                .center            = mesh_asset.bounds.center,
-                .radius            = mesh_asset.bounds.radius,
-        };
-        m_meshes.emplace_back( mesh );
-    }
-
-    {
-        auto& cmd = g_ctx.global_cmd;
-        VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
-        VKCALL( vkResetCommandBuffer( cmd, 0 ) );
-        begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
-
-        upload_buffer_data( g_ctx.staging_buffer, m_meshes.data( ), sizeof( Mesh ) * m_meshes.size( ) );
-
-        const VkBufferCopy copy = {
-                .srcOffset = 0,
-                .dstOffset = 0,
-                .size      = sizeof( Mesh ) * m_meshes.size( ) };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_meshes_buffer.buffer, 1, &copy );
-
-        VKCALL( vkEndCommandBuffer( cmd ) );
-        submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
-        VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
-    }
+    // Upload scene geometry to the gpu
+    _upload_scene_geometry( );
 
     u64 count  = m_draws_count;
     f32 radius = 500.0f;
@@ -115,7 +85,7 @@ void Renderer::Initialize( ) {
     std::uniform_real_distribution<float> scaleDist( 0.8f, 1.2f );
 
     for ( int i = 0; i < count; ++i ) {
-        u64 mesh_id = rand( ) % m_mesh_assets.size( );
+        u64 mesh_id = rand( ) % m_scene_geometry.meshes.size( );
 
         glm::vec3 position(
                 posDist( gen ),
@@ -166,12 +136,13 @@ void Renderer::Shutdown( ) {
 
     destroy_buffer( m_command_buffer );
     destroy_buffer( m_draws_buffer );
-    destroy_buffer( m_meshes_buffer );
     destroy_buffer( m_command_count_buffer );
+    destroy_buffer( m_scene_geometry.vertices_buffer );
+    // destroy_buffer( m_scene_geometry.indices_buffer );
+    destroy_buffer( m_scene_geometry.meshlets_buffer );
+    destroy_buffer( m_scene_geometry.meshlet_data_buffer );
+    destroy_buffer( m_scene_geometry.meshes_buffer );
 
-    for ( auto& mesh : m_mesh_assets ) {
-        destroy_mesh( mesh );
-    }
 
     m_drawcmd_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
@@ -183,11 +154,6 @@ void Renderer::Run( ) {
     f64 avg_cpu_time  = 0;
     f64 avg_gpu_time  = 0;
     f64 avg_cull_time = 0;
-
-    for ( auto& draw : m_draws ) {
-        auto& mesh = m_mesh_assets.at( draw.mesh );
-        m_frame_triangles += mesh.vertex_count_total;
-    }
 
     while ( !m_quit ) {
         auto cpu_time_start = get_time( );
@@ -224,14 +190,13 @@ void Renderer::Run( ) {
                     .dstOffset = 0,
                     .size      = sizeof( u32 ) };
             vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
-
             buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
             vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_drawcmd_pipeline.pipeline );
             DrawCommandComputePushConstants pc{
                     .draws             = m_draws_buffer.device_address,
                     .cmds              = m_command_buffer.device_address,
-                    .meshes            = m_meshes_buffer.device_address,
+                    .meshes            = m_scene_geometry.meshes_buffer.device_address,
                     .count             = m_draws.size( ),
                     .draw_count_buffer = m_command_count_buffer.device_address,
             };
@@ -251,7 +216,6 @@ void Renderer::Run( ) {
 
             vkCmdPushConstants( cmd, m_drawcmd_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
             vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
-
             buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
 
             vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 3 );
@@ -307,7 +271,7 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
 
-    VkClearValue              clear_color{ 0.1f, 0.05f, 0.1f, 1.0f };
+    VkClearValue              clear_color{ 0.05f, 0.1f, 0.3f, 1.0f };
     std::array                attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
     VkRenderingAttachmentInfo depth_attachment{
             .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
@@ -341,12 +305,15 @@ void Renderer::tick( u32 swapchain_image_idx ) {
 
     // Camera matrices
     ScenePushConstants pc{
-            .view            = m_camera.get_view_matrix( ),
-            .projection      = m_camera.get_projection_matrix( ),
-            .camera_position = glm::vec4( m_camera.get_position( ), 1.0f ),
-            .draws_buffer    = m_draws_buffer.device_address,
-            .meshes          = m_meshes_buffer.device_address,
-            .draw_cmds       = m_command_buffer.device_address,
+            .view                 = m_camera.get_view_matrix( ),
+            .projection           = m_camera.get_projection_matrix( ),
+            .camera_position      = glm::vec4( m_camera.get_position( ), 1.0f ),
+            .draws_buffer         = m_draws_buffer.device_address,
+            .meshes               = m_scene_geometry.meshes_buffer.device_address,
+            .meshlets_buffer      = m_scene_geometry.meshlets_buffer.device_address,
+            .meshlets_data_buffer = m_scene_geometry.meshlet_data_buffer.device_address,
+            .vertex_buffer        = m_scene_geometry.vertices_buffer.device_address,
+            .draw_cmds            = m_command_buffer.device_address,
     };
 
     vkCmdPushConstants( cmd, m_mesh_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
@@ -356,78 +323,66 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     vkCmdEndRendering( cmd );
 }
 
-void tl::build_meshlets( MeshAsset& mesh ) {
-    size_t                       max_meshlets = meshopt_buildMeshletsBound( mesh.indices.size( ), max_vertices, max_triangles );
-    std::vector<meshopt_Meshlet> meshlets( max_meshlets );
-    std::vector<unsigned int>    meshlet_vertices( max_meshlets * max_vertices );
-    std::vector<unsigned char>   meshlet_triangles( max_meshlets * max_triangles * 3 );
+void Renderer::_upload_scene_geometry( ) {
+    // Create buffers
+    u64 vertex_size                  = m_scene_geometry.vertices.size( ) * sizeof( Vertex );
+    m_scene_geometry.vertices_buffer = create_buffer( vertex_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    size_t meshlet_count = meshopt_buildMeshlets(
-            meshlets.data( ),
-            meshlet_vertices.data( ),
-            meshlet_triangles.data( ),
-            mesh.indices.data( ),
-            mesh.indices.size( ),
-            &mesh.vertices[0].vx,
-            mesh.vertices.size( ),
-            sizeof( Vertex ),
-            max_vertices,
-            max_triangles, 0.5f );
+    // u64 indices_size = m_scene_geometry.indices.size( ) * sizeof( u32 );
+    // m_scene_geometry.indices_buffer = create_buffer(u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage)
 
-    std::println( "Meshlet count {}", meshlet_count );
+    u64 meshlets_size                = m_scene_geometry.meshlets.size( ) * sizeof( Meshlet );
+    m_scene_geometry.meshlets_buffer = create_buffer( meshlets_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    mesh.meshlets_vertices = create_buffer( meshlet_vertices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    upload_buffer_data( g_ctx.staging_buffer, meshlet_vertices.data( ), meshlet_vertices.size( ) * sizeof( u32 ) );
+    u64 meshlet_data_size                = m_scene_geometry.meshlet_data.size( ) * sizeof( u32 );
+    m_scene_geometry.meshlet_data_buffer = create_buffer( meshlet_data_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    mesh.meshlets_triangles = create_buffer( meshlet_triangles.size( ) * sizeof( u8 ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    upload_buffer_data( g_ctx.staging_buffer, meshlet_triangles.data( ), meshlet_triangles.size( ) * sizeof( u8 ), meshlet_vertices.size( ) * sizeof( u32 ) );
+    u64 meshes_size                = m_scene_geometry.meshes.size( ) * sizeof( Mesh );
+    m_scene_geometry.meshes_buffer = create_buffer( meshes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    mesh.meshlets.clear( );
-    mesh.meshlets.reserve( meshlet_count );
+    // upload to staging buffer first
+    upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.vertices.data( ), vertex_size );
+    upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.meshlets.data( ), meshlets_size, vertex_size );
+    upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.meshlet_data.data( ), meshlet_data_size, vertex_size + meshlets_size );
+    upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.meshes.data( ), meshes_size, vertex_size + meshlets_size + meshlet_data_size );
 
-    for ( u32 i = 0; i < meshlet_count; i++ ) {
-        auto& mopt_meshlet = meshlets[i];
-        meshopt_optimizeMeshlet( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, mopt_meshlet.vertex_count );
-        auto bounds = meshopt_computeMeshletBounds( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, &mesh.vertices[0].vx, mesh.vertices.size( ), sizeof( Vertex ) );
-
-        Meshlet meshlet{ };
-        meshlet.triangle_count  = mopt_meshlet.triangle_count;
-        meshlet.vertex_count    = mopt_meshlet.vertex_count;
-        meshlet.triangle_offset = mopt_meshlet.triangle_offset;
-        meshlet.vertex_offset   = mopt_meshlet.vertex_offset;
-
-        meshlet.cone_apex[0] = bounds.cone_apex[0];
-        meshlet.cone_apex[1] = bounds.cone_apex[1];
-        meshlet.cone_apex[2] = bounds.cone_apex[2];
-
-        meshlet.cone_axis[0] = bounds.cone_axis[0];
-        meshlet.cone_axis[1] = bounds.cone_axis[1];
-        meshlet.cone_axis[2] = bounds.cone_axis[2];
-
-        meshlet.cone_cutoff = bounds.cone_cutoff;
-
-        mesh.vertex_count_total += meshlet.vertex_count;
-
-        mesh.meshlets.push_back( meshlet );
-    }
-
+    // transfer from staging to each buffer
     {
         auto& cmd = g_ctx.global_cmd;
         VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
-        // Copy vertex and index buffer
         const VkBufferCopy vertices_copy = {
                 .srcOffset = 0,
                 .dstOffset = 0,
-                .size      = mesh.meshlets_vertices.size };
-        const VkBufferCopy triangles_copy = {
-                .srcOffset = mesh.meshlets_vertices.size,
+                .size      = vertex_size,
+        };
+        const VkBufferCopy meshlets_copy = {
+                .srcOffset = vertex_size,
                 .dstOffset = 0,
-                .size      = mesh.meshlets_triangles.size };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.meshlets_vertices.buffer, 1, &vertices_copy );
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.meshlets_triangles.buffer, 1, &triangles_copy );
+                .size      = meshlets_size,
+        };
+        const VkBufferCopy meshlet_data_copy = {
+                .srcOffset = vertex_size + meshlets_size,
+                .dstOffset = 0,
+                .size      = meshlet_data_size,
+        };
+        const VkBufferCopy meshes_copy = {
+                .srcOffset = vertex_size + meshlets_size + meshlet_data_size,
+                .dstOffset = 0,
+                .size      = meshes_size,
+        };
+
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.vertices_buffer.buffer, 1, &vertices_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.meshlets_buffer.buffer, 1, &meshlets_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.meshlet_data_buffer.buffer, 1, &meshlet_data_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.meshes_buffer.buffer, 1, &meshes_copy );
+
+        buffer_barrier( cmd, m_scene_geometry.vertices_buffer.buffer, m_scene_geometry.vertices_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
+        buffer_barrier( cmd, m_scene_geometry.meshlets_buffer.buffer, m_scene_geometry.meshlets_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
+        buffer_barrier( cmd, m_scene_geometry.meshlet_data_buffer.buffer, m_scene_geometry.meshlet_data_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
+        buffer_barrier( cmd, m_scene_geometry.meshes_buffer.buffer, m_scene_geometry.meshes_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
 
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
@@ -486,7 +441,61 @@ void Renderer::process_events( ) {
     }
 }
 
-std::optional<MeshAsset> tl::load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name ) {
+void tl::build_meshlets( const std::vector<Vertex>& vertices, const std::vector<u32>& indices, SceneGeometry& scene ) {
+    size_t                       max_meshlets = meshopt_buildMeshletsBound( indices.size( ), max_vertices, max_triangles );
+    std::vector<meshopt_Meshlet> meshlets( max_meshlets );
+    std::vector<unsigned int>    meshlet_vertices( max_meshlets * max_vertices );
+    std::vector<unsigned char>   meshlet_triangles( max_meshlets * max_triangles * 3 );
+
+    size_t meshlet_count = meshopt_buildMeshlets(
+            meshlets.data( ),
+            meshlet_vertices.data( ),
+            meshlet_triangles.data( ),
+            indices.data( ),
+            indices.size( ),
+            &vertices[0].vx,
+            vertices.size( ),
+            sizeof( Vertex ),
+            max_vertices,
+            max_triangles, 0.5f );
+
+    std::println( "Meshlet count {}", meshlet_count );
+
+    for ( auto& mopt_meshlet : meshlets ) {
+        meshopt_optimizeMeshlet( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, mopt_meshlet.vertex_count );
+
+        u64 data_offset = scene.meshlet_data.size( );
+
+        for ( u32 i = 0; i < mopt_meshlet.vertex_count; i++ ) {
+            scene.meshlet_data.push_back( meshlet_vertices[i + mopt_meshlet.vertex_offset] );
+        }
+
+        for ( u32 i = 0; i < mopt_meshlet.triangle_count * 3; i++ ) {
+            scene.meshlet_data.push_back( meshlet_triangles[i + mopt_meshlet.triangle_offset] );
+        }
+
+        auto bounds = meshopt_computeMeshletBounds( &meshlet_vertices[mopt_meshlet.vertex_offset], &meshlet_triangles[mopt_meshlet.triangle_offset], mopt_meshlet.triangle_count, &vertices[0].vx, vertices.size( ), sizeof( Vertex ) );
+
+        Meshlet meshlet{ };
+        meshlet.data_offset    = data_offset;
+        meshlet.vertex_count   = mopt_meshlet.vertex_count;
+        meshlet.triangle_count = mopt_meshlet.triangle_count;
+
+        meshlet.cone_apex[0] = bounds.cone_apex[0];
+        meshlet.cone_apex[1] = bounds.cone_apex[1];
+        meshlet.cone_apex[2] = bounds.cone_apex[2];
+
+        meshlet.cone_axis[0] = bounds.cone_axis[0];
+        meshlet.cone_axis[1] = bounds.cone_axis[1];
+        meshlet.cone_axis[2] = bounds.cone_axis[2];
+
+        meshlet.cone_cutoff = bounds.cone_cutoff;
+
+        scene.meshlets.emplace_back( meshlet );
+    }
+}
+
+u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name, SceneGeometry& scene ) {
     assert( !gltf_path.empty( ) );
     assert( !mesh_name.empty( ) );
     assert( std::filesystem::exists( gltf_path ) );
@@ -496,88 +505,56 @@ std::optional<MeshAsset> tl::load_mesh_from_file( const std::string& gltf_path, 
 
     for ( size_t i = 0; i < aiScene->mNumMeshes; i++ ) {
         if ( std::string( aiScene->mMeshes[i]->mName.C_Str( ) ) == mesh_name ) {
-            MeshAsset mesh;
-            mesh.vertices.clear( );
-            mesh.indices.clear( );
-
             auto ai_mesh = aiScene->mMeshes[i];
 
-            mesh.vertices.reserve( ai_mesh->mNumVertices );
+            std::vector<Vertex> vertices;
+            vertices.reserve( ai_mesh->mNumVertices );
             for ( u32 i = 0; i < ai_mesh->mNumVertices; i++ ) {
                 auto vertex  = ai_mesh->mVertices[i];
                 auto normals = ai_mesh->mNormals[i];
 
-                mesh.vertices.push_back( { vertex.x, vertex.y, vertex.z, normals.x, normals.y, normals.z } );
+                vertices.push_back( { vertex.x, vertex.y, vertex.z, normals.x, normals.y, normals.z } );
             }
 
-            mesh.indices.reserve( ai_mesh->mNumFaces * 3 );
+            std::vector<u32> indices;
+            indices.reserve( ai_mesh->mNumFaces * 3 );
             for ( u32 i = 0; i < ai_mesh->mNumFaces; i++ ) {
                 auto& face = ai_mesh->mFaces[i];
-                mesh.indices.emplace_back( face.mIndices[0] );
-                mesh.indices.emplace_back( face.mIndices[1] );
-                mesh.indices.emplace_back( face.mIndices[2] );
+                indices.emplace_back( face.mIndices[0] );
+                indices.emplace_back( face.mIndices[1] );
+                indices.emplace_back( face.mIndices[2] );
             }
 
-            // bounding box
-            mesh.min = glm::vec3( ai_mesh->mAABB.mMin.x, ai_mesh->mAABB.mMin.y, ai_mesh->mAABB.mMin.z );
-            mesh.max = glm::vec3( ai_mesh->mAABB.mMax.x, ai_mesh->mAABB.mMax.y, ai_mesh->mAABB.mMax.z );
+            // insert new indices and vertices into the global scene
+            u32 vertex_offset = scene.vertices.size( );
+            scene.vertices.insert( scene.vertices.end( ), vertices.begin( ), vertices.end( ) );
+            scene.indices.insert( scene.indices.end( ), indices.begin( ), indices.end( ) );
+
+            // generate meshlets and get offset into global scene
+            u32 meshlet_index = scene.meshlets.size( );
+            build_meshlets( vertices, indices, scene );
+            u32 meshlet_count = scene.meshlets.size( ) - meshlet_index;
 
             // bounding sphere
-            mesh.bounds.center = ( mesh.min + mesh.max ) * 0.5f;
-            mesh.bounds.radius = glm::length( mesh.max - mesh.bounds.center );
+            auto      min    = glm::vec3( ai_mesh->mAABB.mMin.x, ai_mesh->mAABB.mMin.y, ai_mesh->mAABB.mMin.z );
+            auto      max    = glm::vec3( ai_mesh->mAABB.mMax.x, ai_mesh->mAABB.mMax.y, ai_mesh->mAABB.mMax.z );
+            glm::vec3 center = ( min + max ) * 0.5f;
+            f32       radius = glm::length( max - center );
 
-            mesh.vertex_buffer = create_buffer( mesh.vertices.size( ) * sizeof( Vertex ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
-            mesh.index_buffer  = create_buffer( mesh.indices.size( ) * sizeof( u32 ), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+            // Place mesh into scene
+            Mesh mesh{
+                    .center = center,
+                    .radius = radius,
 
-            build_meshlets( mesh );
-            mesh.meshlets_buffer = create_buffer( mesh.meshlets.size( ) * sizeof( Meshlet ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true, false );
+                    .vertex_offset = vertex_offset,
+                    .meshlet_index = meshlet_index,
+                    .meshlet_count = meshlet_count,
+            };
+            scene.meshes.emplace_back( mesh );
 
-            // upload mesh
-            upload_buffer_data( g_ctx.staging_buffer, mesh.vertices.data( ), mesh.vertex_buffer.size );
-            upload_buffer_data( g_ctx.staging_buffer, mesh.indices.data( ), mesh.index_buffer.size, mesh.vertex_buffer.size ); // Upload to the same staging buffer after the vertex data;
-            upload_buffer_data( g_ctx.staging_buffer, mesh.meshlets.data( ), mesh.meshlets_buffer.size, mesh.vertex_buffer.size + mesh.index_buffer.size );
-
-            {
-                auto& cmd = g_ctx.global_cmd;
-                VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
-                VKCALL( vkResetCommandBuffer( cmd, 0 ) );
-                begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
-
-                // Copy vertex and index buffer
-                const VkBufferCopy vertex_copy = {
-                        .srcOffset = 0,
-                        .dstOffset = 0,
-                        .size      = mesh.vertex_buffer.size };
-                const VkBufferCopy index_copy = {
-                        .srcOffset = mesh.vertex_buffer.size,
-                        .dstOffset = 0,
-                        .size      = mesh.index_buffer.size };
-                vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.vertex_buffer.buffer, 1, &vertex_copy );
-                vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.index_buffer.buffer, 1, &index_copy );
-
-                // Copy meshlets
-                const VkBufferCopy meshlets_copy = {
-                        .srcOffset = mesh.vertex_buffer.size + mesh.index_buffer.size,
-                        .dstOffset = 0,
-                        .size      = mesh.meshlets_buffer.size };
-                vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, mesh.meshlets_buffer.buffer, 1, &meshlets_copy );
-
-                VKCALL( vkEndCommandBuffer( cmd ) );
-                submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
-                VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
-            }
-
-            return mesh;
+            return scene.meshes.size( ) - 1;
         }
     }
 
-    return std::nullopt;
-}
-
-void tl::destroy_mesh( MeshAsset& mesh ) {
-    destroy_buffer( mesh.vertex_buffer );
-    destroy_buffer( mesh.index_buffer );
-    destroy_buffer( mesh.meshlets_buffer );
-    destroy_buffer( mesh.meshlets_vertices );
-    destroy_buffer( mesh.meshlets_triangles );
+    return -1;
 }

@@ -44,6 +44,9 @@ namespace tl {
         glm::vec4 camera_position;
         u64       draws_buffer;
         u64       meshes;
+        u64       meshlets_buffer;
+        u64       meshlets_data_buffer;
+        u64       vertex_buffer;
         u64       draw_cmds;
     };
 
@@ -55,10 +58,14 @@ namespace tl {
     const size_t max_vertices  = 64;
     const size_t max_triangles = 124;
     struct Meshlet {
-        u32 vertex_offset;
-        u32 triangle_offset;
+        u64 data_offset; // SceneGeometry::meshlet_data -> [data_offset ... data_offset + vertex_count[ = vertex indices (use index + mesh.vertex_offset to index into vertices_buffer).
+                         // After that until index_count, indices
+                         //
+                         // u32 vindex = meshlet_data[data_offset + i] + mesh.vertex_offset;
+                         // Vertex v = vertices[index];
+
         u32 vertex_count;
-        u32 triangle_count;
+        u32 triangle_count; // triangle count (to get index count do x3)
 
         // backface culling
         f32 cone_apex[3];
@@ -66,41 +73,33 @@ namespace tl {
         f32 cone_cutoff;
     };
 
-    struct MeshAsset {
-        std::vector<Vertex> vertices;
-        std::vector<u32>    indices;
-        Buffer              vertex_buffer;
-        Buffer              index_buffer;
-
-        struct Bounds {
-            glm::vec3 center;
-            f32       radius;
-        } bounds;
-
-        std::vector<Meshlet> meshlets;
-        Buffer               meshlets_buffer;
-        Buffer               meshlets_vertices;
-        Buffer               meshlets_triangles;
-        u64                  vertex_count_total;
-
-        glm::vec3 min;
-        glm::vec3 max;
-    };
-
     struct Mesh {
-        VkDeviceAddress vertex_buffer;
-        VkDeviceAddress meshlet_buffer;
-        VkDeviceAddress meshlet_vertices;
-        VkDeviceAddress meshlet_triangles;
-        u64             meshlet_count;
-        glm::vec3       center;
-        f32             radius;
+        glm::vec3 center;
+        f32       radius;
+
+        u32 vertex_offset;
+        u32 meshlet_index; // first meshlet index into SceneGeometry::meshlets;
+        u32 meshlet_count;
     };
 
     struct Draw {
         glm::mat4 model;
         u64       mesh;
         u64       pad;
+    };
+
+    struct SceneGeometry {
+        std::vector<Vertex>  vertices;
+        std::vector<u32>     indices;
+        std::vector<Meshlet> meshlets;
+        std::vector<u32>     meshlet_data; // Contains the meshlet data (vertex indices & triangles)
+        std::vector<Mesh>    meshes;
+
+        Buffer vertices_buffer;
+        // Buffer indices_buffer;
+        Buffer meshlets_buffer;
+        Buffer meshlet_data_buffer;
+        Buffer meshes_buffer;
     };
 
     class Renderer {
@@ -116,6 +115,7 @@ namespace tl {
     private:
         void tick( u32 swapchain_image_idx );
         void process_events( );
+        void _upload_scene_geometry( );
 
         SDL_Window* m_window = { };
         bool        m_quit   = false;
@@ -134,15 +134,11 @@ namespace tl {
         std::vector<Draw> m_draws                = { };
         Buffer            m_command_count_buffer = { };
 
-        Camera                 m_camera;
-        float                  move_speed = 0.5f;
-        std::vector<MeshAsset> m_mesh_assets;
-        std::vector<Mesh>      m_meshes;
-        Buffer                 m_meshes_buffer = { };
+        Camera        m_camera;
+        float         move_speed       = 0.5f;
+        SceneGeometry m_scene_geometry = { };
     };
 
-    void                     build_meshlets( MeshAsset& mesh );
-    std::optional<MeshAsset> load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name );
-    void                     destroy_mesh( MeshAsset& mesh );
-
+    void build_meshlets( const std::vector<Vertex>& vertices, const std::vector<u32>& indices, SceneGeometry& scene );
+    u32  load_mesh_from_file( const std::string& gltf_path, const std::string& mesh_name, SceneGeometry& scene );
 } // namespace tl

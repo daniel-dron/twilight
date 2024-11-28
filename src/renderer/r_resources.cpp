@@ -166,9 +166,11 @@ void tl::image_barrier( VkCommandBuffer cmd, VkImage image, VkPipelineStageFlags
 
 void tl::buffer_barrier( VkCommandBuffer cmd, VkBuffer buffer, u64 size, VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access ) {
     VkBufferMemoryBarrier2 buffer_barrier{
-            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
             .pNext         = nullptr,
+            .srcStageMask  = src_stage,
             .srcAccessMask = src_access,
+            .dstStageMask  = dst_stage,
             .dstAccessMask = dst_access,
             .buffer        = buffer,
             .size          = size,

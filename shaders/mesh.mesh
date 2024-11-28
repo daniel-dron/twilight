@@ -13,11 +13,14 @@ layout( local_size_x = 32, local_size_y = 1, local_size_z = 1 ) in;
 layout( triangles, max_vertices = 64, max_primitives = 126 ) out;
 
 layout( push_constant, scalar ) uniform block {
-    mat4         view;
-    mat4         projection;
-    vec4         camera_position;
-    DrawsBuffer  draws_buffer;
-    MeshesBuffer meshes_buffer;
+    mat4              view;
+    mat4              projection;
+    vec4              camera_position;
+    DrawsBuffer       draws_buffer;
+    MeshesBuffer      meshes_buffer;
+    MeshletBuffer     meshlets_buffer;
+    MeshletDataBuffer meshlets_data_buffer;
+    VertexBuffer      vertex_buffer;
 };
 
 layout( location = 0 ) out vec3 color[];
@@ -33,25 +36,25 @@ void main( ) {
     Draw draw = draws_buffer.draws[payload.draw_id];
 
     Mesh    mesh    = meshes_buffer.meshes[uint( draw.mesh )];
-    Meshlet meshlet = mesh.meshlet_buffer.meshlets[mid];
+    Meshlet meshlet = meshlets_buffer.meshlets[mesh.meshlet_index + mid];
 
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 
     for ( uint i = gl_LocalInvocationIndex; i < meshlet.vertex_count; i += gl_WorkGroupSize.x ) {
-        uint   index = mesh.meshlet_vertices.vertices[meshlet.vertex_offset + i];
-        Vertex v     = mesh.vertex_buffer.vertices[index];
-        vec4   pos   = projection * view * draw.model * vec4( v.vx, v.vy, v.vz, 1 );
-        color[i]     = vec3( v.nx, v.ny, v.nz ) * 0.5 + 0.5;
+        uint   vindex = meshlets_data_buffer.data[uint( meshlet.data_offset + i )] + mesh.vertex_offset;
+        Vertex v      = vertex_buffer.vertices[vindex];
+        vec4   pos    = projection * view * draw.model * vec4( v.vx, v.vy, v.vz, 1 );
+        color[i]      = vec3( v.nx, v.ny, v.nz ) * 0.5 + 0.5;
 
         gl_MeshVerticesEXT[i].gl_Position = pos;
     }
 
     for ( uint i = gl_LocalInvocationIndex; i < meshlet.triangle_count; i += gl_WorkGroupSize.x ) {
-        gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int( gl_WorkGroupID.x );
-        uint offset                            = meshlet.triangle_offset + i * 3;
-        gl_PrimitiveTriangleIndicesEXT[i]      = uvec3(
-                mesh.meshlet_triangles.triangles[offset],
-                mesh.meshlet_triangles.triangles[offset + 1],
-                mesh.meshlet_triangles.triangles[offset + 2] );
+        uint index                        = i * 3;
+        uint offset                       = uint( meshlet.data_offset + meshlet.vertex_count );
+        gl_PrimitiveTriangleIndicesEXT[i] = uvec3(
+                meshlets_data_buffer.data[index + offset],
+                meshlets_data_buffer.data[index + offset + 1],
+                meshlets_data_buffer.data[index + offset + 2] );
     }
 }
