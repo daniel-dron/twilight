@@ -67,7 +67,7 @@ void Renderer::Initialize( ) {
     m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    // m_mesh_assets.emplace_back( load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10" ).value( ) );
+    load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
     load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
@@ -75,7 +75,7 @@ void Renderer::Initialize( ) {
     _upload_scene_geometry( );
 
     u64 count  = m_draws_count;
-    f32 radius = 500.0f;
+    f32 radius = 200.0f;
     m_draws.reserve( count );
 
     std::random_device                    rd;
@@ -98,7 +98,7 @@ void Renderer::Initialize( ) {
 
         float scale = scaleDist( gen );
         if ( mesh_id == 0 ) {
-            // scale /= 100.0f;
+            scale /= 100.0f;
         }
 
         glm::mat4 model = glm::mat4( 1.0f );
@@ -199,11 +199,14 @@ void Renderer::Run( ) {
                     .meshes            = m_scene_geometry.meshes_buffer.device_address,
                     .count             = m_draws.size( ),
                     .draw_count_buffer = m_command_count_buffer.device_address,
+                    .camera_position   = m_camera.get_position( ),
             };
 
             if ( !m_freeze_frustum ) {
                 m_current_frustum = m_camera.get_frustum( );
             }
+
+            pc.enable_lod = m_lod;
 
             if ( m_culling ) {
                 pc.frustum[0] = m_current_frustum.planes[0];
@@ -414,6 +417,9 @@ void Renderer::process_events( ) {
             else if ( event.key.keysym.scancode == SDL_SCANCODE_F ) {
                 m_freeze_frustum = !m_freeze_frustum;
             }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_L ) {
+                m_lod = !m_lod;
+            }
         }
 
         if ( event.type == SDL_MOUSEMOTION ) {
@@ -525,15 +531,9 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
                 indices.emplace_back( face.mIndices[2] );
             }
 
-            // insert new indices and vertices into the global scene
+            // insert the vertices into the global scene. these will be the same for all LODs and meshlets
             u32 vertex_offset = scene.vertices.size( );
             scene.vertices.insert( scene.vertices.end( ), vertices.begin( ), vertices.end( ) );
-            scene.indices.insert( scene.indices.end( ), indices.begin( ), indices.end( ) );
-
-            // generate meshlets and get offset into global scene
-            u32 meshlet_index = scene.meshlets.size( );
-            build_meshlets( vertices, indices, scene );
-            u32 meshlet_count = scene.meshlets.size( ) - meshlet_index;
 
             // bounding sphere
             auto      min    = glm::vec3( ai_mesh->mAABB.mMin.x, ai_mesh->mAABB.mMin.y, ai_mesh->mAABB.mMin.z );
@@ -547,9 +547,35 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
                     .radius = radius,
 
                     .vertex_offset = vertex_offset,
-                    .meshlet_index = meshlet_index,
-                    .meshlet_count = meshlet_count,
             };
+
+            f32 threshold = 1;
+            for ( u32 i = 0; i < 6; i++ ) {
+                Lod& lod = mesh.lods[i];
+
+                std::vector<u32> lod_indices = indices;
+
+                // LOD 0 its the original mesh so dont simplify it
+                if ( i != 0 ) {
+                    threshold *= 0.5f;
+                    f32  error              = 0.01f;
+                    u32  target_index_count = indices.size( ) * threshold;
+                    auto res                = meshopt_simplify( lod_indices.data( ), lod_indices.data( ), lod_indices.size( ), &vertices[0].vx, vertices.size( ), sizeof( Vertex ), target_index_count, error );
+                    lod_indices.resize( res );
+                }
+
+                // insert new indices and vertices into the global scene
+                scene.indices.insert( scene.indices.end( ), lod_indices.begin( ), lod_indices.end( ) );
+
+                // generate meshlets and get offset into global scene
+                u32 meshlet_index = scene.meshlets.size( );
+                build_meshlets( vertices, lod_indices, scene );
+                u32 meshlet_count = scene.meshlets.size( ) - meshlet_index;
+
+                lod.meshlet_count = meshlet_count;
+                lod.meshlet_index = meshlet_index;
+            }
+
             scene.meshes.emplace_back( mesh );
 
             return scene.meshes.size( ) - 1;

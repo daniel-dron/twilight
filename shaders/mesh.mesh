@@ -28,6 +28,7 @@ layout( location = 0 ) out vec3 color[];
 struct MeshTaskPayload {
     uint meshlet_indices[32];
     uint draw_id;
+    uint lod_id;
 };
 taskPayloadSharedEXT MeshTaskPayload payload;
 
@@ -36,7 +37,8 @@ void main( ) {
     Draw draw = draws_buffer.draws[payload.draw_id];
 
     Mesh    mesh    = meshes_buffer.meshes[uint( draw.mesh )];
-    Meshlet meshlet = meshlets_buffer.meshlets[mesh.meshlet_index + mid];
+    Lod     lod     = mesh.lods[payload.lod_id];
+    Meshlet meshlet = meshlets_buffer.meshlets[lod.meshlet_index + mid];
 
     SetMeshOutputsEXT( meshlet.vertex_count, meshlet.triangle_count );
 

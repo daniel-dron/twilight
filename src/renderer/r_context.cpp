@@ -50,7 +50,7 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
     _create_global_command( );
 
     // create global staging buffer (100MB)
-    staging_buffer = create_buffer( 1000 * 1000 * 100, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
+    staging_buffer = create_buffer( 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
 }
 
 void Context::shutdown( ) {
@@ -65,6 +65,7 @@ void Context::shutdown( ) {
         vkDestroySemaphore( device, frame.render_semaphore, nullptr );
         vkDestroyFence( device, frame.fence, nullptr );
         vkDestroyQueryPool( device, frame.query_pool_timestamps, nullptr );
+        vkDestroyQueryPool( device, frame.query_pipeline_stats, nullptr );
         destroy_image( frame.depth );
     }
 
@@ -145,8 +146,9 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
             .shaderDrawParameters = VK_TRUE,
     };
     VkPhysicalDeviceFeatures features{
-            .shaderInt64       = VK_TRUE,
-            .multiDrawIndirect = VK_TRUE,
+            .shaderInt64             = VK_TRUE,
+            .multiDrawIndirect       = VK_TRUE,
+            .pipelineStatisticsQuery = VK_TRUE,
     };
 
 
@@ -174,9 +176,11 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
 
     // Device
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{
-            .sType      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
-            .taskShader = VK_TRUE,
-            .meshShader = VK_TRUE };
+            .sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+            .taskShader        = VK_TRUE,
+            .meshShader        = VK_TRUE,
+            .meshShaderQueries = VK_TRUE,
+    };
 
     DeviceBuilder device_builder{ physical_device.value( ) };
     device_builder.add_pNext( &mesh_features );

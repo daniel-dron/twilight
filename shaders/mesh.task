@@ -21,6 +21,8 @@ struct DrawMeshTaskCommand {
     uint groupCountY;
     uint groupCountZ;
     uint draw_id;
+    uint lod_id;
+    uint pad;
 };
 
 layout( buffer_reference, scalar, buffer_reference_align = 8 ) buffer CommandsBuffer {
@@ -42,6 +44,7 @@ layout( push_constant, scalar ) uniform block {
 struct MeshTaskPayload {
     uint meshlet_indices[32];
     uint draw_id;
+    uint lod_id;
 };
 taskPayloadSharedEXT MeshTaskPayload payload;
 
@@ -53,8 +56,10 @@ void main( ) {
 
     Draw draw       = draws_buffer.draws[cmd.draw_id];
     payload.draw_id = cmd.draw_id;
+    payload.lod_id  = cmd.lod_id;
 
     Mesh mesh = meshes_buffer.meshes[uint( draw.mesh )];
+    Lod  lod  = mesh.lods[cmd.lod_id];
 
     uint wg = gl_WorkGroupID.x;
     uint ti = gl_LocalInvocationID.x;
@@ -66,10 +71,10 @@ void main( ) {
     memoryBarrier( );
 
     // take rounding back into acount
-    if ( mid < mesh.meshlet_count ) {
+    if ( mid < lod.meshlet_count ) {
 
         // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
-        Meshlet meshlet = meshlets_buffer.meshlets[mesh.meshlet_index + mid];
+        Meshlet meshlet = meshlets_buffer.meshlets[lod.meshlet_index + mid];
 
         vec4 apex           = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
         vec3 view_direction = normalize( camera_position.xyz - apex.xyz );

@@ -28,6 +28,8 @@ namespace tl {
         VkDeviceAddress meshes;
         u64             count;
         VkDeviceAddress draw_count_buffer;
+        glm::vec3       camera_position;
+        u32             enable_lod;
         glm::vec4       frustum[6];
     };
 
@@ -36,6 +38,8 @@ namespace tl {
         u32 y;
         u32 z;
         u32 draw_id;
+        u32 lod_id;
+        u32 pad;
     };
 
     struct ScenePushConstants {
@@ -73,13 +77,19 @@ namespace tl {
         f32 cone_cutoff;
     };
 
+    struct Lod {
+        u32 meshlet_index; // first meshlet index into SceneGeometry::meshlets;
+        u32 meshlet_count;
+    };
+
     struct Mesh {
         glm::vec3 center;
         f32       radius;
 
         u32 vertex_offset;
-        u32 meshlet_index; // first meshlet index into SceneGeometry::meshlets;
-        u32 meshlet_count;
+        u32 pad;
+
+        Lod lods[6];
     };
 
     struct Draw {
@@ -122,13 +132,14 @@ namespace tl {
 
         bool    m_culling         = true;
         bool    m_freeze_frustum  = false;
+        bool    m_lod             = true;
         Frustum m_current_frustum = { };
         u64     m_frame_triangles = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
         Pipeline m_drawcmd_pipeline;
 
-        u64               m_draws_count          = 1'000'000;
+        u64               m_draws_count          = 10'000;
         Buffer            m_command_buffer       = { };
         Buffer            m_draws_buffer         = { };
         std::vector<Draw> m_draws                = { };

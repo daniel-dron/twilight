@@ -29,7 +29,8 @@ namespace tl {
         VkFence         fence;
         Image           depth;
 
-        VkQueryPool        query_pool_timestamps = VK_NULL_HANDLE;
+        VkQueryPool          query_pool_timestamps = VK_NULL_HANDLE;
+        VkQueryPool          query_pipeline_stats  = VK_NULL_HANDLE;
         std::array<u64, 128> gpu_timestamps        = { 0 };
     };
 
@@ -70,7 +71,7 @@ namespace tl {
         Swapchain swapchain = { };
 
         u32                                  current_frame = 0;
-        static constexpr u32                 frame_overlap = 2;
+        static constexpr u32                 frame_overlap = 1;
         std::array<FrameData, frame_overlap> frames;
 
 

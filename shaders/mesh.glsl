@@ -21,12 +21,18 @@ layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer M
     Meshlet meshlets[];
 };
 
+struct Lod {
+    uint meshlet_index;
+    uint meshlet_count;
+};
+
 struct Mesh {
     vec3  center;
     float radius;
     uint  vertex_offset;
-    uint  meshlet_index;
-    uint  meshlet_count;
+    uint  pad;
+
+    Lod lods[6];
 };
 
 layout( buffer_reference, scalar, buffer_reference_align = 8 ) readonly buffer MeshesBuffer {
