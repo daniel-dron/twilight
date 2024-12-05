@@ -64,31 +64,49 @@ target_link_libraries(TwilightEngine PUBLIC tracy meshoptimizer assimp glm vma f
 # target_link_libraries(TwilightEngine PUBLIC tracy assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
 
 # SHADERS
-set(SHADER_SOURCE_DIR "${PROJECT_SOURCE_DIR}/../shaders")
+set(SHADER_SOURCE_DIR "${PROJECT_SOURCE_DIR}/../shaders/")
 set(SHADER_BINARY_DIR "${PROJECT_SOURCE_DIR}/../bin/shaders/")
-file(GLOB_RECURSE GLSL_SHADERS ${SHADER_SOURCE_DIR}/*.vert ${SHADER_SOURCE_DIR}/*.frag ${SHADER_SOURCE_DIR}/*.mesh ${SHADER_SOURCE_DIR}/*.task ${SHADER_SOURCE_DIR}/*.comp)
-file(GLOB_RECURSE ALL_GLSL_SHADER_FILES ${SHADER_SOURCE_DIR}/*.vert ${SHADER_SOURCE_DIR}/*.frag ${SHADER_SOURCE_DIR}/*.mesh ${SHADER_SOURCE_DIR}/*.task ${SHADER_SOURCE_DIR}/*.comp ${SHADER_SOURCE_DIR}/*.glsl)
+file(GLOB_RECURSE GLSL_SHADERS ${SHADER_SOURCE_DIR}/*.vert.slang ${SHADER_SOURCE_DIR}/*.frag.slang ${SHADER_SOURCE_DIR}/*.mesh.slang ${SHADER_SOURCE_DIR}/*.task.slang ${SHADER_SOURCE_DIR}/*.comp.slang)
+file(GLOB_RECURSE ALL_GLSL_SHADER_FILES ${SHADER_SOURCE_DIR}/*.slang)
 
 message(STATUS ${ALL_GLSL_SHADER_FILES})
 
-find_program(GLSL_COMPILER glslangValidator)
-message(${GLSL_COMPILER})
+set(SLANG_COMPILER "C:/Tools/slangc/bin/slangc") # Hardcoded shameful for now....
+message(${SLANG_COMPILER})
 
 foreach (GLSL ${GLSL_SHADERS})
     message(STATUS "BUILDING SHADER")
     get_filename_component(FILE_NAME ${GLSL} NAME)
     set(SPIRV_COMBINED "${SHADER_BINARY_DIR}/${FILE_NAME}.spv")
 
+    # Determine shader stage from extension
+    if(${GLSL} MATCHES "\.task\.slang$")
+        set(STAGE_FLAG amplification)
+    elseif(${GLSL} MATCHES "\.mesh\.slang$")
+        set(STAGE_FLAG mesh)
+    elseif(${GLSL} MATCHES "\.vert\.slang$")
+        set(STAGE_FLAG vertex)
+    elseif(${GLSL} MATCHES "\.frag\.slang$")
+        set(STAGE_FLAG fragment)
+    elseif(${GLSL} MATCHES "\.comp\.slang$")
+        set(STAGE_FLAG compute)
+    else()
+        set(STAGE_FLAG)
+    endif()
+
+    # Construct the full command as a string for echo
+    set(COMMAND_STRING "${SLANG_COMPILER} ${GLSL} -stage ${STAGE_FLAG} -force-glsl-scalar-layout -target spirv -o ${SPIRV_COMBINED}")
+    
     message(STATUS ${GLSL})
     add_custom_command(
             OUTPUT ${SPIRV_COMBINED}
-            COMMAND ${GLSL_COMPILER}
-            -V                  # Generate SPIR-V output
-            -G                  # Specify the target client and version
-            --target-env vulkan1.3
-            -g                  # Generate debug info
-            ${GLSL}             # Input GLSL shader file
-            -o ${SPIRV_COMBINED} # Output SPIR-V file
+            COMMAND ${CMAKE_COMMAND} -E echo "Running: ${COMMAND_STRING}"
+            COMMAND ${SLANG_COMPILER}
+            ${GLSL}
+            -stage ${STAGE_FLAG}
+            -force-glsl-scalar-layout
+            -target spirv
+            -o ${SPIRV_COMBINED}
 
             DEPENDS ${GLSL}
             BYPRODUCTS ${SPIRV_VERTEX} ${SPIRV_PIXEL}

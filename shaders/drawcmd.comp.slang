@@ -17,7 +17,7 @@ PushData push_data;
 
 [shader("compute")]
 [numthreads(32, 1, 1)]
-void compute_main(
+void main(
     uint3 group_id : SV_GroupID,
     uint3 thread_id : SV_GroupThreadID 
 ) {

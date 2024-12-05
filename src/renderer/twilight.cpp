@@ -49,9 +49,9 @@ void Renderer::Initialize( ) {
 
     m_mesh_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
-            .pixel                = "../shaders/mesh_frag.slang.spv",
-            .mesh                 = "../shaders/mesh.slang.spv",
-            .task                 = "../shaders/mesh_task.slang.spv",
+            .pixel                = "../shaders/meshlet.frag.slang.spv",
+            .mesh                 = "../shaders/meshlet.mesh.slang.spv",
+            .task                 = "../shaders/meshlet.task.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
@@ -60,7 +60,7 @@ void Renderer::Initialize( ) {
 
     m_drawcmd_pipeline.initialize( PipelineConfig{
             .name                 = "draw commands",
-            .compute              = "../shaders/drawcmd.slang.spv",
+            .compute              = "../shaders/drawcmd.comp.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
     m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );

@@ -29,7 +29,7 @@ PushData push_data;
 [shader("mesh")]
 [numthreads(32, 1, 1)]
 [outputtopology("triangle")]
-void mesh_main(
+void main(
     in payload TaskPayload payload,
     out indices uint3 triangles[126],
     out vertices VertexOutput vertices[64],
