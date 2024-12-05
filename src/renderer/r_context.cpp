@@ -142,13 +142,15 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
             .bufferDeviceAddress     = true,
     };
     VkPhysicalDeviceVulkan11Features features_11{
-            .sType                = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-            .shaderDrawParameters = VK_TRUE,
+            .sType                         = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+            .shaderDrawParameters          = VK_TRUE,
+            .variablePointersStorageBuffer = VK_TRUE,
+            .variablePointers              = VK_TRUE,
     };
     VkPhysicalDeviceFeatures features{
             .shaderInt64             = VK_TRUE,
-            .multiDrawIndirect       = VK_TRUE,
             .pipelineStatisticsQuery = VK_TRUE,
+            .multiDrawIndirect       = VK_TRUE,
     };
 
 

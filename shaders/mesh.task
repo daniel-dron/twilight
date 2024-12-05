@@ -64,16 +64,13 @@ void main( ) {
     uint wg = gl_WorkGroupID.x;
     uint ti = gl_LocalInvocationID.x;
 
-    // Calculate the meshlet ID for the current invocation
     uint mid = wg * 32 + ti;
 
     meshlet_count = 0;
     memoryBarrier( );
 
-    // take rounding back into acount
     if ( mid < lod.meshlet_count ) {
 
-        // If the meshlet isnt cone backface culled, add it to the array of meshlets to be processed by the mesh shaders
         Meshlet meshlet = meshlets_buffer.meshlets[lod.meshlet_index + mid];
 
         vec4 apex           = draw.model * vec4( meshlet.cone_apex[0], meshlet.cone_apex[1], meshlet.cone_apex[2], 1.0f );
@@ -86,7 +83,5 @@ void main( ) {
     }
 
     memoryBarrier( );
-
-    // Emit mesh shader groups for the meshlets that passed culling
     EmitMeshTasksEXT( meshlet_count, 1, 1 );
 }

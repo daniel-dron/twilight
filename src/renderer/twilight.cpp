@@ -49,9 +49,9 @@ void Renderer::Initialize( ) {
 
     m_mesh_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
-            .pixel                = "../shaders/mesh.frag.spv",
-            .mesh                 = "../shaders/mesh.mesh.spv",
-            .task                 = "../shaders/mesh.task.spv",
+            .pixel                = "../shaders/mesh_frag.slang.spv",
+            .mesh                 = "../shaders/mesh.slang.spv",
+            .task                 = "../shaders/mesh_task.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_CLOCKWISE,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
@@ -60,15 +60,16 @@ void Renderer::Initialize( ) {
 
     m_drawcmd_pipeline.initialize( PipelineConfig{
             .name                 = "draw commands",
-            .compute              = "../shaders/drawcmd.comp.spv",
+            .compute              = "../shaders/drawcmd.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
     m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
+    // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
+    load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
     load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
     // Upload scene geometry to the gpu
@@ -98,7 +99,7 @@ void Renderer::Initialize( ) {
 
         float scale = scaleDist( gen );
         if ( mesh_id == 0 ) {
-            scale /= 100.0f;
+            // scale /= 100.0f;
         }
 
         glm::mat4 model = glm::mat4( 1.0f );
@@ -557,7 +558,7 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
 
                 // LOD 0 its the original mesh so dont simplify it
                 if ( i != 0 ) {
-                    threshold *= 0.5f;
+                    threshold *= 0.75f;
                     f32  error              = 0.01f;
                     u32  target_index_count = indices.size( ) * threshold;
                     auto res                = meshopt_simplify( lod_indices.data( ), lod_indices.data( ), lod_indices.size( ), &vertices[0].vx, vertices.size( ), sizeof( Vertex ), target_index_count, error );
