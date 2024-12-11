@@ -11,6 +11,7 @@
 ******************************************************************************
 ******************************************************************************/
 
+#include <array>
 #include <cassert>
 #include <pch.h>
 #include <print>
@@ -49,6 +50,8 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
     _create_frames( );
     _create_global_command( );
 
+    _create_descriptor_pool( );
+
     // create global staging buffer (100MB)
     staging_buffer = create_buffer( 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
 }
@@ -66,11 +69,14 @@ void Context::shutdown( ) {
         vkDestroyFence( device, frame.fence, nullptr );
         vkDestroyQueryPool( device, frame.query_pool_timestamps, nullptr );
         vkDestroyQueryPool( device, frame.query_pipeline_stats, nullptr );
+        destroy_image( frame.color );
         destroy_image( frame.depth );
     }
 
     vkDestroyCommandPool( device, pool, nullptr );
     vkDestroyFence( device, global_fence, nullptr );
+
+    vkDestroyDescriptorPool( device, descriptor_pool, nullptr );
 
     vmaDestroyAllocator( allocator );
 
@@ -100,6 +106,13 @@ void Context::_create_global_command( ) {
     VKCALL( vkAllocateCommandBuffers( device, &cmd_info, &global_cmd ) );
 
     global_fence = create_fence( VK_FENCE_CREATE_SIGNALED_BIT );
+}
+
+void Context::_create_descriptor_pool( ) {
+    std::array<VkDescriptorPoolSize, 2> sizes = {
+            VkDescriptorPoolSize{ .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 100 },
+            VkDescriptorPoolSize{ .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 100 } };
+    descriptor_pool = create_descriptor_pool( sizes.data( ), sizes.size( ), 100 );
 }
 
 void Context::_create_device( const std::string& name, struct SDL_Window* window ) {
@@ -248,7 +261,8 @@ void Context::_create_frames( ) {
         VKCALL( vkCreateQueryPool( device, &query_pool_info, nullptr, &frame.query_pool_timestamps ) );
         vkResetQueryPool( device, frame.query_pool_timestamps, 0, frame.gpu_timestamps.size( ) );
 
-        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1 );
+        frame.color = create_image( swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, 1 );
+        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
     }
 }
 
@@ -256,10 +270,17 @@ FrameData& Context::get_current_frame( ) {
     return frames.at( current_frame % frame_overlap );
 }
 
+u32 Context::get_current_frame_index( ) {
+    return current_frame % frame_overlap;
+}
+
 void Context::resize( u32 width, u32 height, VkDevice device, VkSurfaceKHR surface ) {
     for ( auto& frame : frames ) {
         destroy_image( frame.depth );
-        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1 );
+        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
+
+        destroy_image( frame.color );
+        frame.color = create_image( swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, 1 );
     }
 
     swapchain.resize( width, height, chosen_gpu, device, surface );

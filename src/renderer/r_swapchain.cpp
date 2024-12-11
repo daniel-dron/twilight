@@ -56,7 +56,7 @@ void Swapchain::create( u32 width, u32 height, VkPhysicalDevice physical_device,
 
     auto swapchain = builder.use_default_format_selection( )
                              .set_old_swapchain( old_swapchain )
-                             //  .set_desired_format( { .format = VK_FORMAT_R8G8B8A8_SRGB } )
+                            //  .set_desired_format( { .format = VK_FORMAT_R8G8B8A8_SRGB } )
                              .set_desired_present_mode( VK_PRESENT_MODE_FIFO_KHR )
                              .add_image_usage_flags( VK_IMAGE_USAGE_TRANSFER_DST_BIT ) // to allow copies to it
                              .build( );

@@ -14,6 +14,7 @@
 #pragma once
 
 #include <types.h>
+#include <vector>
 #include <vulkan/vulkan_core.h>
 #include "pch.h"
 
@@ -37,10 +38,11 @@ namespace tl {
         };
     };
 
-    VkDescriptorPool      create_descriptor_pool( const VkDescriptorPoolSize* sizes, u32 pool_size, u32 max_sets );
-    VkDescriptorSetLayout create_descriptor_layout( const VkDescriptorSetLayoutBinding* bindings, uint32_t binding_count );
-    VkDescriptorSet       allocate_descriptor_set( VkDescriptorPool pool, VkDescriptorSetLayout layout );
-    void                  update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writes, uint32_t write_count );
+    VkDescriptorPool             create_descriptor_pool( const VkDescriptorPoolSize* sizes, u32 pool_size, u32 max_sets );
+    VkDescriptorSetLayout        create_descriptor_layout( const VkDescriptorSetLayoutBinding* bindings, uint32_t binding_count );
+    VkDescriptorSet              allocate_descriptor_set( VkDescriptorPool pool, VkDescriptorSetLayout layout );
+    std::vector<VkDescriptorSet> allocate_descript_set( VkDescriptorPool pool, VkDescriptorSetLayout layout, u32 count );
+    void                         update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writes, uint32_t write_count );
 
     // Buffers
     struct Buffer {

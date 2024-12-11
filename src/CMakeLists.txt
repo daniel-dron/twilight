@@ -78,6 +78,7 @@ foreach (GLSL ${GLSL_SHADERS})
     message(STATUS "BUILDING SHADER")
     get_filename_component(FILE_NAME ${GLSL} NAME)
     set(SPIRV_COMBINED "${SHADER_BINARY_DIR}/${FILE_NAME}.spv")
+    set(SPRIV_COMBINED_JSON "${SHADER_BINARY_DIR}/${FILE_NAME}.spv.json")
 
     # Determine shader stage from extension
     if(${GLSL} MATCHES "\.task\.slang$")
@@ -95,18 +96,13 @@ foreach (GLSL ${GLSL_SHADERS})
     endif()
 
     # Construct the full command as a string for echo
-    set(COMMAND_STRING "${SLANG_COMPILER} ${GLSL} -stage ${STAGE_FLAG} -force-glsl-scalar-layout -target spirv -o ${SPIRV_COMBINED}")
+    set(COMMAND_STRING "${SLANG_COMPILER} ${GLSL} -stage ${STAGE_FLAG} -force-glsl-scalar-layout -target spirv -reflection-json ${SPRIV_COMBINED_JSON} -o ${SPIRV_COMBINED}")
     
     message(STATUS ${GLSL})
     add_custom_command(
             OUTPUT ${SPIRV_COMBINED}
             COMMAND ${CMAKE_COMMAND} -E echo "Running: ${COMMAND_STRING}"
-            COMMAND ${SLANG_COMPILER}
-            ${GLSL}
-            -stage ${STAGE_FLAG}
-            -force-glsl-scalar-layout
-            -target spirv
-            -o ${SPIRV_COMBINED}
+            COMMAND ${SLANG_COMPILER} ${GLSL} -stage ${STAGE_FLAG} -force-glsl-scalar-layout -target spirv -reflection-json ${SPRIV_COMBINED_JSON} -o ${SPIRV_COMBINED}
 
             DEPENDS ${GLSL}
             BYPRODUCTS ${SPIRV_VERTEX} ${SPIRV_PIXEL}

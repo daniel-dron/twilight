@@ -54,7 +54,7 @@ void Renderer::Initialize( ) {
             .task                 = "../shaders/meshlet.task.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_CLOCKWISE,
-            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = g_ctx.swapchain.format, .blend_type = PipelineConfig::BlendType::OFF } },
+            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = VK_FORMAT_R32G32B32A32_SFLOAT, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
 
@@ -63,6 +63,34 @@ void Renderer::Initialize( ) {
             .compute              = "../shaders/drawcmd.comp.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
+
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
+            VkDescriptorSetLayoutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
+            VkDescriptorSetLayoutBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT } };
+    m_depthpyramid_descriptor_layout = create_descriptor_layout( bindings.data( ), bindings.size( ) );
+    m_depthpyramid_pipeline.initialize( PipelineConfig{
+            .name                   = "depth pyramid",
+            .compute                = "../shaders/depth_pyramid.comp.slang.spv",
+            .descriptor_set_layouts = { m_depthpyramid_descriptor_layout },
+    } );
+    m_depthpyramid_sets = allocate_descript_set( g_ctx.descriptor_pool, m_depthpyramid_descriptor_layout, g_ctx.frame_overlap );
+
+    for ( u32 i = 0; i < g_ctx.frame_overlap; i++ ) {
+        auto set = m_depthpyramid_sets[i];
+
+        std::array<DescriptorWrite, 2> writes = {
+                DescriptorWrite{
+                        .type    = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                        .binding = 0,
+                        .image   = { .sampler = VK_NULL_HANDLE, .imageView = g_ctx.frames[i].depth.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
+                DescriptorWrite{
+                        .type    = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                        .binding = 1,
+                        .image   = { .sampler = VK_NULL_HANDLE, .imageView = g_ctx.frames[i].color.view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL } } };
+
+        update_descriptor_set( set, writes.data( ), writes.size( ) );
+    }
+
     m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
@@ -70,20 +98,20 @@ void Renderer::Initialize( ) {
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
     load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
-    load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
+    // load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
     // Upload scene geometry to the gpu
     _upload_scene_geometry( );
 
     u64 count  = m_draws_count;
-    f32 radius = 200.0f;
+    f32 radius = 500.0f;
     m_draws.reserve( count );
 
     std::random_device                    rd;
     std::mt19937                          gen( rd( ) );
     std::uniform_real_distribution<float> posDist( -radius, radius );
     std::uniform_real_distribution<float> rotDist( 0.0f, 360.0f );
-    std::uniform_real_distribution<float> scaleDist( 0.8f, 1.2f );
+    std::uniform_real_distribution<float> scaleDist( 0.8f, 3.0f );
 
     for ( int i = 0; i < count; ++i ) {
         u64 mesh_id = rand( ) % m_scene_geometry.meshes.size( );
@@ -144,9 +172,11 @@ void Renderer::Shutdown( ) {
     destroy_buffer( m_scene_geometry.meshlet_data_buffer );
     destroy_buffer( m_scene_geometry.meshes_buffer );
 
+    vkDestroyDescriptorSetLayout( g_ctx.device, m_depthpyramid_descriptor_layout, nullptr );
 
     m_drawcmd_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
+    m_depthpyramid_pipeline.shutdown( );
     g_ctx.shutdown( );
     SDL_DestroyWindow( m_window );
 }
@@ -225,17 +255,46 @@ void Renderer::Run( ) {
             vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, 3 );
         }
 
-        image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
-                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED,
-                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
-        image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED,
-                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-                       VK_IMAGE_ASPECT_DEPTH_BIT );
-
+        image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
+        image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
         tick( swapchain_image_idx );
-        image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx],
-                       VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                       VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR );
+
+        if ( m_display_depth ) {
+            // copy depth image to the color target (THIS WILL DISCARD THE COLOR IMAGE FOR THIS FRAME!)
+            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.pipeline );
+
+            // transition depth image to be sampled
+            image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
+
+            // transition color image to storage
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL );
+
+            auto& set = m_depthpyramid_sets[g_ctx.get_current_frame_index( )];
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.layout, 0, 1, &set, 0, nullptr );
+            vkCmdDispatch( cmd, ( g_ctx.swapchain.width + 31 ) / 32, ( g_ctx.swapchain.height + 31 ) / 32, 1 );
+        }
+
+        // Copy from color target image to swapchain
+        {
+            // transition swapchain image for a copy as the destination
+            image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx], VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+            // transition color target image for a copy as the source
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, m_display_depth ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+
+            VkImageBlit region = {
+                    .srcSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
+                    .srcOffsets     = {
+                            { 0, 0, 0 },
+                            { i32( g_ctx.swapchain.width ), i32( g_ctx.swapchain.height ), 1 } },
+                    .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
+                    .dstOffsets     = { { 0, 0, 0 }, { i32( g_ctx.swapchain.width ), i32( g_ctx.swapchain.height ), 1 } },
+            };
+
+            vkCmdBlitImage( cmd, frame.color.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, g_ctx.swapchain.images[swapchain_image_idx], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST );
+
+            // transition the swapchain image to be presented
+            image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx], VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR );
+        }
 
         vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, 1 );
         // Submit command
@@ -276,7 +335,7 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     auto& cmd   = frame.cmd;
 
     VkClearValue              clear_color{ 0.05f, 0.1f, 0.3f, 1.0f };
-    std::array                attachments = { attachment( g_ctx.swapchain.views[swapchain_image_idx], &clear_color ) };
+    std::array                attachments = { attachment( frame.color.view, &clear_color ) };
     VkRenderingAttachmentInfo depth_attachment{
             .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
             .pNext       = nullptr,
@@ -420,6 +479,9 @@ void Renderer::process_events( ) {
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_L ) {
                 m_lod = !m_lod;
+            }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_P ) {
+                m_display_depth = !m_display_depth;
             }
         }
 

@@ -254,6 +254,15 @@ void tl::update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writ
     vkUpdateDescriptorSets( g_ctx.device, write_count, descriptor_writes.data( ), 0, nullptr );
 }
 
+std::vector<VkDescriptorSet> tl::allocate_descript_set( VkDescriptorPool pool, VkDescriptorSetLayout layout, u32 count ) {
+    std::vector<VkDescriptorSet> sets;
+
+    for ( auto i = 0; i < count; i++ ) {
+        sets.push_back( allocate_descriptor_set( pool, layout ) );
+    }
+
+    return sets;
+}
 
 Buffer tl::create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
     assert( size != 0 );

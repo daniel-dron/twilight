@@ -28,6 +28,7 @@ namespace tl {
         VkSemaphore     render_semaphore;
         VkFence         fence;
         Image           depth;
+        Image           color;
 
         VkQueryPool          query_pool_timestamps = VK_NULL_HANDLE;
         VkQueryPool          query_pipeline_stats  = VK_NULL_HANDLE;
@@ -40,6 +41,7 @@ namespace tl {
         void resize( u32 width, u32 height, VkDevice device, VkSurfaceKHR surface );
 
         FrameData& get_current_frame( );
+        u32 get_current_frame_index( );
 
         // Vulkan handles
         VkInstance               instance        = VK_NULL_HANDLE;
@@ -63,6 +65,8 @@ namespace tl {
         VkFence         global_fence;
         Buffer          staging_buffer;
 
+        VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
+
         // Properties
         VkPhysicalDeviceProperties2       properties        = { };
         VkPhysicalDeviceMemoryProperties2 memory_properties = { };
@@ -71,9 +75,8 @@ namespace tl {
         Swapchain swapchain = { };
 
         u32                                  current_frame = 0;
-        static constexpr u32                 frame_overlap = 1;
+        static constexpr u32                 frame_overlap = 2;
         std::array<FrameData, frame_overlap> frames;
-
 
         inline f64 get_query_time_in_ms( u64 start, u64 end ) const {
             const auto period = properties.properties.limits.timestampPeriod;
@@ -84,6 +87,7 @@ namespace tl {
         void _create_device( const std::string& name, struct SDL_Window* window );
         void _create_frames( );
         void _create_global_command( );
+        void _create_descriptor_pool( );
 
         bool m_validation_layers = false;
     };

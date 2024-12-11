@@ -66,8 +66,8 @@ namespace tl {
 
         float m_aspect_ratio = 0.0f;
 
-        float m_near_plane = 0.01f;
-        float m_far_plane  = 10000.0f;
+        float m_near_plane = 0.1f;
+        float m_far_plane  = 1000.0f;
 
         bool m_dirtyMatrices = true;
     };
