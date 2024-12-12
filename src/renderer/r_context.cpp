@@ -21,6 +21,7 @@
 #define VOLK_IMPLEMENTATION
 #include <Volk/volk.h>
 #include <types.h>
+#include <utils.h>
 #include "SDL_vulkan.h"
 #include "VkBootstrap.h"
 #include "r_context.h"
@@ -284,8 +285,9 @@ void Context::_create_images( ) {
         frame.depth      = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
         frame.depth.view = create_view( frame.depth );
 
-        frame.depth_pyramid_levels = get_mip_count( swapchain.width / 2, swapchain.height / 2 );
-        frame.depth_pyramid        = create_image( swapchain.width / 2, swapchain.height / 2, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, frame.depth_pyramid_levels );
+        frame.depth_pyramid_size   = nearest_pow_2( swapchain.width );
+        frame.depth_pyramid_levels = get_mip_count( frame.depth_pyramid_size, frame.depth_pyramid_size );
+        frame.depth_pyramid        = create_image( frame.depth_pyramid_size, frame.depth_pyramid_size, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, frame.depth_pyramid_levels );
         for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
             frame.depth_pyramid_mips[i] = create_view( frame.depth_pyramid, i, 1 );
             assert( frame.depth_pyramid_mips[i] != VK_NULL_HANDLE );

@@ -31,6 +31,7 @@ namespace tl {
         Image           color;
         Image           depth_pyramid;
 
+        u32                         depth_pyramid_size = 0;
         std::array<VkImageView, 16> depth_pyramid_mips;
         u32                         depth_pyramid_levels = 0;
 

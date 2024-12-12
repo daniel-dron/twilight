@@ -27,6 +27,7 @@ namespace tl {
         VkDeviceAddress draws;
         VkDeviceAddress cmds;
         VkDeviceAddress meshes;
+        glm::mat4       projection_matrix;
         u64             count;
         VkDeviceAddress draw_count_buffer;
         glm::vec3       camera_position;

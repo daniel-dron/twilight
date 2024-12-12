@@ -224,6 +224,7 @@ void Renderer::Run( ) {
                     .draws             = m_draws_buffer.device_address,
                     .cmds              = m_command_buffer.device_address,
                     .meshes            = m_scene_geometry.meshes_buffer.device_address,
+                    .projection_matrix = m_camera.get_projection_matrix( ),
                     .count             = m_draws.size( ),
                     .draw_count_buffer = m_command_count_buffer.device_address,
                     .camera_position   = m_camera.get_position( ),
@@ -257,6 +258,7 @@ void Renderer::Run( ) {
 
         _construct_depth_pyramid( );
 
+        // copy depth pyramid to color texture
         if ( m_display_depth >= 0 ) {
             image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, m_display_depth, 1 );
             image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
@@ -265,7 +267,7 @@ void Renderer::Run( ) {
                     .srcSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = u32( m_display_depth ), .layerCount = 1 },
                     .srcOffsets     = {
                             { 0, 0, 0 },
-                            { i32( g_ctx.swapchain.width >> ( 1 + m_display_depth ) ), i32( g_ctx.swapchain.height >> ( 1 + m_display_depth ) ), 1 } },
+                            { i32( frame.depth_pyramid_size >> m_display_depth ), i32( frame.depth_pyramid_size >> m_display_depth ), 1 } },
                     .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
                     .dstOffsets     = { { 0, 0, 0 }, { i32( g_ctx.swapchain.width ), i32( g_ctx.swapchain.height ), 1 } },
             };
@@ -462,7 +464,7 @@ void Renderer::_construct_depth_pyramid( ) {
 
     for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
         DepthPyramidPushConstants pc = {
-                .mip_size = { g_ctx.swapchain.width >> ( 1 + i ), g_ctx.swapchain.height >> ( 1 + i ), i } };
+                .mip_size = { frame.depth_pyramid_size >> i, frame.depth_pyramid_size >> i, i } };
 
         vkCmdPushConstants( cmd, m_depthpyramid_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DepthPyramidPushConstants ), &pc );
         vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.layout, 0, 1, &set, 0, nullptr );
@@ -717,8 +719,8 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
 
                 // LOD 0 its the original mesh so dont simplify it
                 if ( i != 0 ) {
-                    threshold *= 0.75f;
-                    f32  error              = 0.01f;
+                    threshold *= 0.5f;
+                    f32  error              = 0.001f * std::pow( 2.0f, i );
                     u32  target_index_count = indices.size( ) * threshold;
                     auto res                = meshopt_simplify( lod_indices.data( ), lod_indices.data( ), lod_indices.size( ), &vertices[0].vx, vertices.size( ), sizeof( Vertex ), target_index_count, error );
                     lod_indices.resize( res );
