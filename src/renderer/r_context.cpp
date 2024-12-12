@@ -71,7 +71,14 @@ void Context::shutdown( ) {
         vkDestroyQueryPool( device, frame.query_pipeline_stats, nullptr );
         destroy_image( frame.color );
         destroy_image( frame.depth );
+
+        for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
+            vkDestroyImageView( device, frame.depth_pyramid_mips[i], nullptr );
+        }
+
+        destroy_image( frame.depth_pyramid );
     }
+
 
     vkDestroyCommandPool( device, pool, nullptr );
     vkDestroyFence( device, global_fence, nullptr );
@@ -109,9 +116,10 @@ void Context::_create_global_command( ) {
 }
 
 void Context::_create_descriptor_pool( ) {
-    std::array<VkDescriptorPoolSize, 2> sizes = {
+    std::array<VkDescriptorPoolSize, 3> sizes = {
             VkDescriptorPoolSize{ .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 100 },
-            VkDescriptorPoolSize{ .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 100 } };
+            VkDescriptorPoolSize{ .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 100 },
+            VkDescriptorPoolSize{ .type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 10 } };
     descriptor_pool = create_descriptor_pool( sizes.data( ), sizes.size( ), 100 );
 }
 
@@ -151,19 +159,21 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     VkPhysicalDeviceVulkan12Features features_12{
             .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .storageBuffer8BitAccess = true,
+            .runtimeDescriptorArray  = true,
             .hostQueryReset          = true,
             .bufferDeviceAddress     = true,
     };
     VkPhysicalDeviceVulkan11Features features_11{
             .sType                         = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
-            .shaderDrawParameters          = VK_TRUE,
             .variablePointersStorageBuffer = VK_TRUE,
             .variablePointers              = VK_TRUE,
+            .shaderDrawParameters          = VK_TRUE,
     };
     VkPhysicalDeviceFeatures features{
-            .shaderInt64             = VK_TRUE,
-            .pipelineStatisticsQuery = VK_TRUE,
             .multiDrawIndirect       = VK_TRUE,
+            .pipelineStatisticsQuery = VK_TRUE,
+            .shaderInt64             = VK_TRUE,
+            .samplerAnisotropy       = VK_TRUE,
     };
 
 
@@ -260,9 +270,26 @@ void Context::_create_frames( ) {
                 .queryCount = u32( frame.gpu_timestamps.size( ) ) };
         VKCALL( vkCreateQueryPool( device, &query_pool_info, nullptr, &frame.query_pool_timestamps ) );
         vkResetQueryPool( device, frame.query_pool_timestamps, 0, frame.gpu_timestamps.size( ) );
+    }
 
-        frame.color = create_image( swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, 1 );
-        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
+    _create_images( );
+}
+
+
+void Context::_create_images( ) {
+    for ( auto& frame : frames ) {
+        frame.color      = create_image( swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT, 1 );
+        frame.color.view = create_view( frame.color );
+
+        frame.depth      = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
+        frame.depth.view = create_view( frame.depth );
+
+        frame.depth_pyramid_levels = get_mip_count( swapchain.width / 2, swapchain.height / 2 );
+        frame.depth_pyramid        = create_image( swapchain.width / 2, swapchain.height / 2, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, frame.depth_pyramid_levels );
+        for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
+            frame.depth_pyramid_mips[i] = create_view( frame.depth_pyramid, i, 1 );
+            assert( frame.depth_pyramid_mips[i] != VK_NULL_HANDLE );
+        }
     }
 }
 
@@ -277,11 +304,11 @@ u32 Context::get_current_frame_index( ) {
 void Context::resize( u32 width, u32 height, VkDevice device, VkSurfaceKHR surface ) {
     for ( auto& frame : frames ) {
         destroy_image( frame.depth );
-        frame.depth = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
-
         destroy_image( frame.color );
-        frame.color = create_image( swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT, 1 );
+        destroy_image( frame.depth_pyramid );
     }
+
+    _create_images( );
 
     swapchain.resize( width, height, chosen_gpu, device, surface );
 }

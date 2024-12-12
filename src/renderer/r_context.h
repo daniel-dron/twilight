@@ -29,6 +29,10 @@ namespace tl {
         VkFence         fence;
         Image           depth;
         Image           color;
+        Image           depth_pyramid;
+
+        std::array<VkImageView, 16> depth_pyramid_mips;
+        u32                         depth_pyramid_levels = 0;
 
         VkQueryPool          query_pool_timestamps = VK_NULL_HANDLE;
         VkQueryPool          query_pipeline_stats  = VK_NULL_HANDLE;
@@ -41,7 +45,7 @@ namespace tl {
         void resize( u32 width, u32 height, VkDevice device, VkSurfaceKHR surface );
 
         FrameData& get_current_frame( );
-        u32 get_current_frame_index( );
+        u32        get_current_frame_index( );
 
         // Vulkan handles
         VkInstance               instance        = VK_NULL_HANDLE;
@@ -88,6 +92,7 @@ namespace tl {
         void _create_frames( );
         void _create_global_command( );
         void _create_descriptor_pool( );
+        void _create_images( );
 
         bool m_validation_layers = false;
     };

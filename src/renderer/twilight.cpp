@@ -15,11 +15,11 @@
 
 #include <SDL2/SDL_video.h>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <meshoptimizer.h>
-#include <optional>
 #include <pch.h>
 #include "SDL.h"
 #include "SDL_events.h"
@@ -32,6 +32,8 @@
 
 #include <renderer/r_context.h>
 #include <renderer/r_shaders.h>
+#include <string>
+#include <vector>
 #include <vulkan/vulkan_core.h>
 
 using namespace tl;
@@ -64,32 +66,23 @@ void Renderer::Initialize( ) {
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings = {
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings = {
             VkDescriptorSetLayoutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-            VkDescriptorSetLayoutBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT } };
+            VkDescriptorSetLayoutBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = g_ctx.frames[0].depth_pyramid_levels, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
+            VkDescriptorSetLayoutBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = g_ctx.frames[0].depth_pyramid_levels, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
+            VkDescriptorSetLayoutBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
+    };
     m_depthpyramid_descriptor_layout = create_descriptor_layout( bindings.data( ), bindings.size( ) );
     m_depthpyramid_pipeline.initialize( PipelineConfig{
             .name                   = "depth pyramid",
             .compute                = "../shaders/depth_pyramid.comp.slang.spv",
+            .push_constant_ranges   = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DepthPyramidPushConstants ) } },
             .descriptor_set_layouts = { m_depthpyramid_descriptor_layout },
     } );
     m_depthpyramid_sets = allocate_descript_set( g_ctx.descriptor_pool, m_depthpyramid_descriptor_layout, g_ctx.frame_overlap );
 
-    for ( u32 i = 0; i < g_ctx.frame_overlap; i++ ) {
-        auto set = m_depthpyramid_sets[i];
-
-        std::array<DescriptorWrite, 2> writes = {
-                DescriptorWrite{
-                        .type    = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                        .binding = 0,
-                        .image   = { .sampler = VK_NULL_HANDLE, .imageView = g_ctx.frames[i].depth.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
-                DescriptorWrite{
-                        .type    = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                        .binding = 1,
-                        .image   = { .sampler = VK_NULL_HANDLE, .imageView = g_ctx.frames[i].color.view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL } } };
-
-        update_descriptor_set( set, writes.data( ), writes.size( ) );
-    }
+    m_linear_sampler    = create_sampler( );
+    m_reduction_sampler = create_reduction_sampler( );
 
     m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
@@ -177,6 +170,9 @@ void Renderer::Shutdown( ) {
     m_drawcmd_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
     m_depthpyramid_pipeline.shutdown( );
+    vkDestroySampler( g_ctx.device, m_linear_sampler, nullptr );
+    vkDestroySampler( g_ctx.device, m_reduction_sampler, nullptr );
+
     g_ctx.shutdown( );
     SDL_DestroyWindow( m_window );
 }
@@ -259,19 +255,22 @@ void Renderer::Run( ) {
         image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
         tick( swapchain_image_idx );
 
-        if ( m_display_depth ) {
-            // copy depth image to the color target (THIS WILL DISCARD THE COLOR IMAGE FOR THIS FRAME!)
-            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.pipeline );
+        _construct_depth_pyramid( );
 
-            // transition depth image to be sampled
-            image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
+        if ( m_display_depth >= 0 ) {
+            image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, m_display_depth, 1 );
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
 
-            // transition color image to storage
-            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL );
+            VkImageBlit region = {
+                    .srcSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = u32( m_display_depth ), .layerCount = 1 },
+                    .srcOffsets     = {
+                            { 0, 0, 0 },
+                            { i32( g_ctx.swapchain.width >> ( 1 + m_display_depth ) ), i32( g_ctx.swapchain.height >> ( 1 + m_display_depth ) ), 1 } },
+                    .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
+                    .dstOffsets     = { { 0, 0, 0 }, { i32( g_ctx.swapchain.width ), i32( g_ctx.swapchain.height ), 1 } },
+            };
 
-            auto& set = m_depthpyramid_sets[g_ctx.get_current_frame_index( )];
-            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.layout, 0, 1, &set, 0, nullptr );
-            vkCmdDispatch( cmd, ( g_ctx.swapchain.width + 31 ) / 32, ( g_ctx.swapchain.height + 31 ) / 32, 1 );
+            vkCmdBlitImage( cmd, frame.depth_pyramid.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, frame.color.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST );
         }
 
         // Copy from color target image to swapchain
@@ -279,7 +278,7 @@ void Renderer::Run( ) {
             // transition swapchain image for a copy as the destination
             image_barrier( cmd, g_ctx.swapchain.images[swapchain_image_idx], VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
             // transition color target image for a copy as the source
-            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, m_display_depth ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, m_display_depth >= 0 ? VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
 
             VkImageBlit region = {
                     .srcSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
@@ -324,8 +323,16 @@ void Renderer::Run( ) {
 
         f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
 
-        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; cull: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; draws: {}; culling: {}{};",
-                                  avg_cpu_time, avg_gpu_time, avg_cull_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, m_draws_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "" );
+        std::string depth_text;
+        if ( m_display_depth == -1 ) {
+            depth_text = "color";
+        }
+        else {
+            depth_text = std::string( "pyramid mip " ) + std::to_string( m_display_depth - 1 );
+        }
+
+        auto title = std::format( "cpu: {:.3f}; gpu: {:.3f}; cull: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; draws: {}; culling: {}{}; depth: {}",
+                                  avg_cpu_time, avg_gpu_time, avg_cull_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, m_draws_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", depth_text.c_str( ) );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -384,6 +391,92 @@ void Renderer::tick( u32 swapchain_image_idx ) {
     vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
 
     vkCmdEndRendering( cmd );
+}
+
+void Renderer::_construct_depth_pyramid( ) {
+    auto& frame = g_ctx.get_current_frame( );
+    auto& cmd   = frame.cmd;
+
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.pipeline );
+
+    // transition depth image to be sampled
+    image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
+
+    // transition pyramid image to storage
+    image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL );
+
+    // Update descriptor sets
+    auto& set = m_depthpyramid_sets[g_ctx.get_current_frame_index( )];
+    {
+        VkDescriptorImageInfo depth_info = {
+                .imageView = frame.depth.view, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+
+        VkDescriptorImageInfo sampler_info = { .sampler = m_reduction_sampler };
+
+        std::vector<VkDescriptorImageInfo> pyramid_info;
+        for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
+            pyramid_info.push_back(
+                    { .imageView = frame.depth_pyramid_mips[i], .imageLayout = VK_IMAGE_LAYOUT_GENERAL } );
+        }
+
+        std::array<VkWriteDescriptorSet, 4> descriptor_writes = {
+                VkWriteDescriptorSet{
+                        .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext           = nullptr,
+                        .dstSet          = set,
+                        .dstBinding      = 0,
+                        .dstArrayElement = 0,
+                        .descriptorCount = 1,
+                        .descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                        .pImageInfo      = &depth_info },
+                VkWriteDescriptorSet{
+                        .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext           = nullptr,
+                        .dstSet          = set,
+                        .dstBinding      = 1,
+                        .dstArrayElement = 0,
+                        .descriptorCount = frame.depth_pyramid_levels,
+                        .descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                        .pImageInfo      = pyramid_info.data( ) },
+                VkWriteDescriptorSet{
+                        .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext           = nullptr,
+                        .dstSet          = set,
+                        .dstBinding      = 2,
+                        .dstArrayElement = 0,
+                        .descriptorCount = frame.depth_pyramid_levels,
+                        .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                        .pImageInfo      = pyramid_info.data( ) },
+                VkWriteDescriptorSet{
+                        .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .pNext           = nullptr,
+                        .dstSet          = set,
+                        .dstBinding      = 3,
+                        .dstArrayElement = 0,
+                        .descriptorCount = 1,
+                        .descriptorType  = VK_DESCRIPTOR_TYPE_SAMPLER,
+                        .pImageInfo      = &sampler_info },
+        };
+        vkUpdateDescriptorSets( g_ctx.device, descriptor_writes.size( ), descriptor_writes.data( ), 0, nullptr );
+    }
+
+    for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
+        DepthPyramidPushConstants pc = {
+                .mip_size = { g_ctx.swapchain.width >> ( 1 + i ), g_ctx.swapchain.height >> ( 1 + i ), i } };
+
+        vkCmdPushConstants( cmd, m_depthpyramid_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DepthPyramidPushConstants ), &pc );
+        vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.layout, 0, 1, &set, 0, nullptr );
+        vkCmdDispatch( cmd, ( pc.mip_size.x + 31 ) / 32, ( pc.mip_size.y + 31 ) / 32, 1 );
+
+        // depth image is already transitioned at the start of the function
+        if ( i != 0 ) {
+            // this mip was previously being written to, now its gonna be read from
+            image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, i - 1, 1 );
+        }
+
+        // image barrier for mip i to be written to
+        image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, i, 1 );
+    }
 }
 
 void Renderer::_upload_scene_geometry( ) {
@@ -481,7 +574,11 @@ void Renderer::process_events( ) {
                 m_lod = !m_lod;
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_P ) {
-                m_display_depth = !m_display_depth;
+                m_display_depth++;
+
+                if ( m_display_depth >= g_ctx.frames[0].depth_pyramid_levels ) {
+                    m_display_depth = -1;
+                }
             }
         }
 

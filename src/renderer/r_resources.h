@@ -44,6 +44,23 @@ namespace tl {
     std::vector<VkDescriptorSet> allocate_descript_set( VkDescriptorPool pool, VkDescriptorSetLayout layout, u32 count );
     void                         update_descriptor_set( VkDescriptorSet set, const DescriptorWrite* writes, uint32_t write_count );
 
+    VkSampler create_sampler( VkSamplerCreateInfo info = {
+                                      .sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                      .magFilter               = VK_FILTER_LINEAR,
+                                      .minFilter               = VK_FILTER_LINEAR,
+                                      .mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                                      .addressModeU            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                      .addressModeV            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                      .addressModeW            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                                      .anisotropyEnable        = VK_TRUE,
+                                      .maxAnisotropy           = 16.0f,
+                                      .borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+                                      .unnormalizedCoordinates = VK_FALSE,
+                                      .compareEnable           = VK_FALSE,
+                                      .compareOp               = VK_COMPARE_OP_ALWAYS,
+                              } );
+    VkSampler create_reduction_sampler( );
+
     // Buffers
     struct Buffer {
         VkBuffer          buffer          = VK_NULL_HANDLE;
@@ -66,7 +83,10 @@ namespace tl {
         VkFormat      format     = { };
         VmaAllocation allocation = { };
     };
-    Image create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels );
-    void  destroy_image( Image& image );
+    Image       create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels );
+    VkImageView create_view( const Image& image, u32 mip = 0, u32 mip_count = VK_REMAINING_MIP_LEVELS );
+    void        destroy_image( Image& image );
+
+    u32 get_mip_count( u32 width, u32 height );
 
 } // namespace tl

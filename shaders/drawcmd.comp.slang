@@ -5,6 +5,7 @@ struct PushData {
     Draw* draws;
     DrawMeshTaskCommand* cmds;
     Mesh* meshes;
+    float4x4 projection_matrix;
     uint64_t count;
     uint32_t* out_count;
     float3 camera_position;
@@ -41,8 +42,10 @@ void main(
             InterlockedAdd(push_data.out_count[0], 1, id);
 
             if (push_data.enable_lod == 1) {
-                float lod_distance = log2(max(1, (distance(center, push_data.camera_position) - radius)));
-                lod_id = clamp(int(lod_distance), 0, 5);
+                float dist = distance(center, push_data.camera_position);
+                float size = (radius * 300.0) / max(dist * dist, 0.001); 
+                float lod_distance = -log2(clamp(size, 0.01, 1.0));
+                lod_id = clamp(int(lod_distance * 0.75), 0, 5);
             }
 
             Lod lod = mesh.lods[lod_id];

@@ -17,6 +17,7 @@
 #include <renderer/r_shaders.h>
 #include <types.h>
 #include <vulkan/vulkan_core.h>
+#include "glm/ext/vector_uint2.hpp"
 #include "r_camera.h"
 #include "r_resources.h"
 
@@ -52,6 +53,10 @@ namespace tl {
         u64       meshlets_data_buffer;
         u64       vertex_buffer;
         u64       draw_cmds;
+    };
+
+    struct DepthPyramidPushConstants {
+        glm::uvec3 mip_size;
     };
 
     struct Vertex {
@@ -126,11 +131,12 @@ namespace tl {
         void tick( u32 swapchain_image_idx );
         void process_events( );
         void _upload_scene_geometry( );
+        void _construct_depth_pyramid( );
 
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
-        bool    m_display_depth   = false;
+        i32     m_display_depth   = -1;
         bool    m_culling         = true;
         bool    m_freeze_frustum  = false;
         bool    m_lod             = true;
@@ -140,6 +146,9 @@ namespace tl {
         Pipeline m_mesh_pipeline;
         Pipeline m_drawcmd_pipeline;
         Pipeline m_depthpyramid_pipeline;
+
+        VkSampler m_linear_sampler    = VK_NULL_HANDLE;
+        VkSampler m_reduction_sampler = VK_NULL_HANDLE; // Sampler used for MAX reduction on depth pyramid creation
 
         VkDescriptorSetLayout        m_depthpyramid_descriptor_layout;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;

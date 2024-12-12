@@ -147,8 +147,8 @@ void tl::image_barrier( VkCommandBuffer cmd, VkImage image, VkPipelineStageFlags
 
             .subresourceRange = {
                     .aspectMask     = aspect_mask,
-                    .baseMipLevel   = 0,
-                    .levelCount     = VK_REMAINING_MIP_LEVELS,
+                    .baseMipLevel   = base_mip,
+                    .levelCount     = level_count,
                     .baseArrayLayer = 0,
                     .layerCount     = VK_REMAINING_ARRAY_LAYERS,
             },
@@ -264,6 +264,36 @@ std::vector<VkDescriptorSet> tl::allocate_descript_set( VkDescriptorPool pool, V
     return sets;
 }
 
+
+VkSampler tl::create_sampler( VkSamplerCreateInfo info ) {
+    VkSampler sampler;
+    vkCreateSampler( g_ctx.device, &info, nullptr, &sampler );
+
+    return sampler;
+}
+
+VkSampler tl::create_reduction_sampler( ) {
+    VkSamplerCreateInfo info{
+            .sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter    = VK_FILTER_LINEAR,
+            .minFilter    = VK_FILTER_LINEAR,
+            .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .minLod       = 0,
+            .maxLod       = 16.f,
+    };
+
+    VkSamplerReductionModeCreateInfoEXT info_reduction{
+            .sType         = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT,
+            .pNext         = &info_reduction,
+            .reductionMode = VK_SAMPLER_REDUCTION_MODE_MAX,
+    };
+
+    return create_sampler( info );
+}
+
 Buffer tl::create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
     assert( size != 0 );
 
@@ -347,6 +377,12 @@ Image tl::create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlag
     };
     VKCALL( vmaCreateImage( g_ctx.allocator, &create_info, &alloc_info, &image.image, &image.allocation, nullptr ) );
 
+    return image;
+}
+
+VkImageView tl::create_view( const Image& image, u32 mip, u32 mip_count ) {
+    VkImageView view = VK_NULL_HANDLE;
+
     const VkImageViewCreateInfo view_info{
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .pNext = nullptr,
@@ -356,15 +392,14 @@ Image tl::create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlag
             .format           = image.format,
             .subresourceRange = {
                     .aspectMask     = VkImageAspectFlags( image.format == VK_FORMAT_D32_SFLOAT ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT ),
-                    .baseMipLevel   = 0,
-                    .levelCount     = VK_REMAINING_MIP_LEVELS,
+                    .baseMipLevel   = mip,
+                    .levelCount     = mip_count,
                     .baseArrayLayer = 0,
                     .layerCount     = 1
 
             } };
-    VKCALL( vkCreateImageView( g_ctx.device, &view_info, nullptr, &image.view ) );
-
-    return image;
+    VKCALL( vkCreateImageView( g_ctx.device, &view_info, nullptr, &view ) );
+    return view;
 }
 
 void tl::destroy_image( Image& image ) {
@@ -373,4 +408,17 @@ void tl::destroy_image( Image& image ) {
     }
 
     vmaDestroyImage( g_ctx.allocator, image.image, image.allocation );
+}
+
+u32 tl::get_mip_count( u32 width, u32 height ) {
+    u32 count = 1;
+
+    while ( width > 1 || height > 1 ) {
+        count++;
+
+        width /= 2;
+        height /= 2;
+    }
+
+    return count;
 }
