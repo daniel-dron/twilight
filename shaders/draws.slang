@@ -10,5 +10,5 @@ struct DrawMeshTaskCommand {
     uint32_t groupCountZ;
     uint32_t draw_id;
     uint32_t lod_id;
-    uint32_t pad;
+    float pad;
 };

@@ -161,6 +161,7 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
             .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .storageBuffer8BitAccess = true,
             .runtimeDescriptorArray  = true,
+            .samplerFilterMinmax     = true,
             .hostQueryReset          = true,
             .bufferDeviceAddress     = true,
     };
@@ -173,8 +174,8 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     VkPhysicalDeviceFeatures features{
             .multiDrawIndirect       = VK_TRUE,
             .pipelineStatisticsQuery = VK_TRUE,
-            .shaderInt64             = VK_TRUE,
             .samplerAnisotropy       = VK_TRUE,
+            .shaderInt64             = VK_TRUE,
     };
 
 
@@ -186,6 +187,8 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
                                    .set_required_features_11( features_11 )
                                    .set_required_features( features )
                                    .add_required_extension( VK_EXT_MESH_SHADER_EXTENSION_NAME )
+                                   .add_required_extension( VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME )
+                                   .add_required_extension( VK_NV_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME )
                                    .set_surface( this->surface )
                                    .select( );
     assert( physical_device.has_value( ) );
@@ -208,8 +211,14 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
             .meshShaderQueries = VK_TRUE,
     };
 
+    VkPhysicalDeviceComputeShaderDerivativesFeaturesNV compute_derivatives_features{
+            .sType                        = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_NV,
+            .computeDerivativeGroupQuads  = VK_TRUE,
+            .computeDerivativeGroupLinear = VK_TRUE };
+
     DeviceBuilder device_builder{ physical_device.value( ) };
     device_builder.add_pNext( &mesh_features );
+    device_builder.add_pNext( &compute_derivatives_features );
     auto device = device_builder.build( );
     assert( device.has_value( ) );
     this->device = device->device;
@@ -288,6 +297,7 @@ void Context::_create_images( ) {
         frame.depth_pyramid_size   = nearest_pow_2( swapchain.width );
         frame.depth_pyramid_levels = get_mip_count( frame.depth_pyramid_size, frame.depth_pyramid_size );
         frame.depth_pyramid        = create_image( frame.depth_pyramid_size, frame.depth_pyramid_size, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, frame.depth_pyramid_levels );
+        frame.depth_pyramid.view   = create_view( frame.depth_pyramid );
         for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
             frame.depth_pyramid_mips[i] = create_view( frame.depth_pyramid, i, 1 );
             assert( frame.depth_pyramid_mips[i] != VK_NULL_HANDLE );

@@ -37,6 +37,8 @@ namespace tl {
         const glm::mat4& get_projection_matrix( );
         Frustum          get_frustum( );
 
+        float get_near( ) { return m_near_plane; };
+
     private:
         void _update_vectors( );
         void _update_matrices( );
@@ -66,8 +68,8 @@ namespace tl {
 
         float m_aspect_ratio = 0.0f;
 
-        float m_near_plane = 1.0f;
-        float m_far_plane  = 1000.0f;
+        float m_near_plane = 0.1f;
+        float m_far_plane  = 500.0f;
 
         bool m_dirtyMatrices = true;
     };

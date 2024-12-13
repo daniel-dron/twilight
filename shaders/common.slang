@@ -1,3 +1,5 @@
+#include "draws.slang"
+
 struct Vertex {
     float vx, vy, vz;
     float nx, ny, nz;
@@ -21,8 +23,29 @@ struct Lod {
 struct Mesh {
     float3 center;
     float radius;
+    
     uint32_t vertex_offset;
     uint32_t pad;
 
     Lod lods[6];
 }
+
+struct CullData {
+    Draw* draws;
+    DrawMeshTaskCommand* cmds;
+    Mesh* meshes;
+    uint32_t* visibility;
+    float4x4 projection_matrix;
+    float4x4 view_matrix;
+    uint64_t count;
+    uint32_t* out_count;
+    float3 camera_position;
+    uint32_t enable_lod;
+    float4 frustum[6];
+    float4 occlusion_data; // width, height, znear, enabled
+    float4 occlusion_data2; // p00, p11
+};
+
+struct DrawCommandCullData {
+    CullData* cull_data;
+};

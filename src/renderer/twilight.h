@@ -23,16 +23,24 @@
 
 namespace tl {
 
-    struct DrawCommandComputePushConstants {
+    struct CullData {
         VkDeviceAddress draws;
         VkDeviceAddress cmds;
         VkDeviceAddress meshes;
+        VkDeviceAddress visibility;
         glm::mat4       projection_matrix;
+        glm::mat4       view_matrix;
         u64             count;
         VkDeviceAddress draw_count_buffer;
         glm::vec3       camera_position;
         u32             enable_lod;
         glm::vec4       frustum[6];
+        glm::vec4       occlusion_data;  // width, height, znear, enabled
+        glm::vec4       occlusion_data2; // p00, p11
+    };
+
+    struct DrawCommandComputePushConstants {
+        VkDeviceAddress cull_data;
     };
 
     struct DrawMeshTaskCommand {
@@ -118,6 +126,14 @@ namespace tl {
         Buffer meshes_buffer;
     };
 
+    // Timestamp values
+#define GPU_TOTAL_START 0
+#define GPU_TOTAL_END GPU_TOTAL_START + 1
+#define GPU_TOTAL_FIRST_CULL_STEP_START 2
+#define GPU_TOTAL_FIRST_CULL_STEP_END GPU_TOTAL_FIRST_CULL_STEP_START + 1
+#define GPU_TOTAL_SECOND_CULL_STEP_START 4
+#define GPU_TOTAL_SECOND_CULL_STEP_END GPU_TOTAL_SECOND_CULL_STEP_START + 1
+
     class Renderer {
     public:
         void Initialize( );
@@ -129,15 +145,18 @@ namespace tl {
         u32 height = 1080;
 
     private:
-        void tick( u32 swapchain_image_idx );
         void process_events( );
+        void _issue_draw_calls( u32 swapchain_image_idx, bool clear_color = true, bool clear_depth = true );
         void _upload_scene_geometry( );
+        void _early_cull( );
+        void _late_cull( );
         void _construct_depth_pyramid( );
 
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
         i32     m_display_depth   = -1;
+        bool    m_occlusion       = true;
         bool    m_culling         = true;
         bool    m_freeze_frustum  = false;
         bool    m_lod             = true;
@@ -145,23 +164,32 @@ namespace tl {
         u64     m_frame_triangles = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
-        Pipeline m_drawcmd_pipeline;
+        Pipeline m_early_cull_pipeline;
+        Pipeline m_late_cull_pipeline;
         Pipeline m_depthpyramid_pipeline;
 
         VkSampler m_linear_sampler    = VK_NULL_HANDLE;
         VkSampler m_reduction_sampler = VK_NULL_HANDLE; // Sampler used for MAX reduction on depth pyramid creation
 
+        VkDescriptorSetLayout        m_late_cull_descriptor_layout = VK_NULL_HANDLE;
+        std::vector<VkDescriptorSet> m_late_cull_set;
+
         VkDescriptorSetLayout        m_depthpyramid_descriptor_layout;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
-        u64               m_draws_count          = 100'000;
-        Buffer            m_command_buffer       = { };
-        Buffer            m_draws_buffer         = { };
-        std::vector<Draw> m_draws                = { };
-        Buffer            m_command_count_buffer = { };
+        u64                   m_draws_count          = 100'000;
+        Buffer                m_command_buffer       = { };
+        Buffer                m_draws_buffer         = { };
+        std::vector<Draw>     m_draws                = { };
+        Buffer                m_command_count_buffer = { };
+        std::array<Buffer, 2> m_cull_data            = { };
+        std::array<Buffer, 3> m_visible_draws        = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
+        // 0 -> 1 frame
+        // 1 -> another frame
+        // 2 -> buffer frame used to copy between them
 
         Camera        m_camera;
-        float         move_speed       = 0.5f;
+        float         move_speed       = 0.1f;
         SceneGeometry m_scene_geometry = { };
     };
 

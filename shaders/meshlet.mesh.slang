@@ -1,4 +1,3 @@
-#include "draws.slang"
 #include "common.slang"
 
 struct VertexOutput {
@@ -26,18 +25,6 @@ struct PushData {
 [[vk_push_constant]]
 PushData push_data;
 
-float3 get_lod_debug_color(int lod) {
-    switch(lod) {
-        case 0: return float3(0.0, 0.0, 1.0);    // Blue
-        case 1: return float3(0.0, 1.0, 1.0);    // Cyan
-        case 2: return float3(0.0, 1.0, 0.0);    // Green
-        case 3: return float3(1.0, 1.0, 0.0);    // Yellow
-        case 4: return float3(1.0, 0.5, 0.0);    // Orange
-        case 5: return float3(1.0, 0.0, 0.0);    // Red
-        default: return float3(1.0, 0.0, 1.0);   // Magenta (error)
-    }
-}
-
 [shader("mesh")]
 [numthreads(32, 1, 1)]
 [outputtopology("triangle")]
@@ -63,9 +50,6 @@ void main(
 
         VertexOutput vertex_out;
         vertex_out.color = float3(vertex.nx, vertex.ny, vertex.nz) * 0.5f + 0.5f;
-
-        // vertex_out.color = get_lod_debug_color(payload.lod_id);
-
         vertex_out.position = mul(push_data.projection, mul(push_data.view, mul(draw.model, float4(vertex.vx, vertex.vy, vertex.vz, 1.0f))));
 
         vertices[i] = vertex_out;

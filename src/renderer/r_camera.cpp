@@ -11,6 +11,7 @@
 ******************************************************************************
 ******************************************************************************/
 #include <pch.h>
+#include "glm/ext/matrix_clip_space.hpp"
 
 #include "r_camera.h"
 
@@ -34,7 +35,7 @@ namespace tl {
 
         m_roll += deltaRoll;
 
-        m_pitch += deltaPitch;
+        m_pitch -= deltaPitch;
         m_pitch = std::clamp( m_pitch, m_min_pitch, m_max_pitch );
 
         m_dirtyMatrices = true;
@@ -105,8 +106,7 @@ namespace tl {
 
     void Camera::_update_matrices( ) {
         m_view_matrix       = lookAt( m_position, m_position + m_front, m_up );
-        m_projection_matrix = glm::perspective( glm::radians( m_fov ), m_aspect_ratio, m_near_plane, m_far_plane );
-        m_projection_matrix[1][1] *= -1;
+        m_projection_matrix = glm::perspectiveRH( glm::radians( m_fov ), m_aspect_ratio, m_near_plane, m_far_plane );
 
         _update_frustum( );
 

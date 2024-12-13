@@ -1,4 +1,3 @@
-#include "draws.slang"
 #include "common.slang"
 
 struct TaskPayload {

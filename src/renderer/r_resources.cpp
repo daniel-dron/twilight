@@ -10,6 +10,7 @@
 **                                                                           **
 ******************************************************************************
 ******************************************************************************/
+#include <cstddef>
 #include <pch.h>
 #include <vulkan/vulkan_core.h>
 
@@ -287,9 +288,11 @@ VkSampler tl::create_reduction_sampler( ) {
 
     VkSamplerReductionModeCreateInfoEXT info_reduction{
             .sType         = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT,
-            .pNext         = &info_reduction,
+            .pNext         = nullptr,
             .reductionMode = VK_SAMPLER_REDUCTION_MODE_MAX,
     };
+
+    info.pNext = &info_reduction;
 
     return create_sampler( info );
 }
