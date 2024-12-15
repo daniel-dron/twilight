@@ -27,8 +27,9 @@ namespace tl {
         VkSemaphore     swapchain_semaphore;
         VkSemaphore     render_semaphore;
         VkFence         fence;
-        Image           depth;
         Image           color;
+        
+        Image           depth;
         Image           depth_pyramid;
 
         u32                         depth_pyramid_size = 0;

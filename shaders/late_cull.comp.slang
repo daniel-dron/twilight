@@ -39,7 +39,7 @@ void main(
                 float2 radius_screen = radius_proj.xy / radius_proj.w;
                 float screen_radius = length(radius_screen - center_screen);
 
-                float mip_level = screen_radius > 0.0f ? floor(log2(screen_radius * 1024.0f)) + 1.0f : 0.0f; // TODO: this +1.0f is bad. Doing it to decrease popping but still bad
+                float mip_level = screen_radius > 0.0f ? floor(log2(screen_radius * 1024.0f)) : 0.0f; // TODO: this +1.0f is bad. Doing it to decrease popping but still bad
                 mip_level = max(0.0f, mip_level);
                 
                 // bring the center point closer to the camera so we sample the closest point

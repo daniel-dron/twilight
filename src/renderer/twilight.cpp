@@ -26,7 +26,6 @@
 #include "SDL_scancode.h"
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
-#include "glm/gtx/transform.hpp"
 #include "r_resources.h"
 #include "renderer/r_resources.h"
 #include "types.h"
@@ -118,7 +117,7 @@ void Renderer::Initialize( ) {
     _upload_scene_geometry( );
 
     u64 count  = m_draws_count;
-    f32 radius = 200.0f;
+    f32 radius = 120.0f;
     m_draws.reserve( count );
 
     // float     scale = 5.0f;
@@ -133,7 +132,7 @@ void Renderer::Initialize( ) {
     std::mt19937                          gen( rd( ) );
     std::uniform_real_distribution<float> posDist( -radius, radius );
     std::uniform_real_distribution<float> rotDist( 0.0f, 360.0f );
-    std::uniform_real_distribution<float> scaleDist( 0.1f, 1.0f );
+    std::uniform_real_distribution<float> scaleDist( 0.1f, 2.0f );
 
     for ( int i = 0; i < count; ++i ) {
         u64 mesh_id = rand( ) % m_scene_geometry.meshes.size( );
@@ -284,7 +283,11 @@ void Renderer::Run( ) {
         _issue_draw_calls( swapchain_image_idx );
 
         // STEP 3 [Depth Pyramid Construction]
-        _construct_depth_pyramid( );
+        if ( !m_lock_occlusion ) {
+            _construct_depth_pyramid( );
+            m_occlusion_view        = m_camera.get_view_matrix( );
+            m_occlusion_perspective = m_camera.get_projection_matrix( );
+        }
 
         // STEP 4 [Late Cull]
         // Frustum cull + Occlusion Cull
@@ -527,7 +530,11 @@ void Renderer::_late_cull( ) {
     vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
     buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
-    image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
+    if (!m_lock_occlusion) {
+        image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
+    } else {
+        image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
+    }
 
     // descriptor set
     std::array<DescriptorWrite, 2> writes = {
@@ -544,8 +551,8 @@ void Renderer::_late_cull( ) {
             .cmds              = m_command_buffer.device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
-            .projection_matrix = m_camera.get_projection_matrix( ),
-            .view_matrix       = m_camera.get_view_matrix( ),
+            .projection_matrix = m_occlusion_perspective,
+            .view_matrix       = m_occlusion_view,
             .count             = m_draws.size( ),
             .draw_count_buffer = m_command_count_buffer.device_address,
             .camera_position   = m_camera.get_position( ),
@@ -769,6 +776,9 @@ void Renderer::process_events( ) {
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_O ) {
                 m_occlusion = !m_occlusion;
+            }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_I ) {
+                m_lock_occlusion = !m_lock_occlusion;
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
                 auto& draw = m_draws.at( 0 );

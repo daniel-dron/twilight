@@ -155,13 +155,16 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
-        i32     m_display_depth   = -1;
-        bool    m_occlusion       = true;
-        bool    m_culling         = true;
-        bool    m_freeze_frustum  = false;
-        bool    m_lod             = true;
-        Frustum m_current_frustum = { };
-        u64     m_frame_triangles = 0; // how many triangles were drawn this frame
+        i32       m_display_depth      = -1;
+        bool      m_occlusion          = true;
+        bool      m_lock_occlusion     = false;
+        glm::mat4 m_occlusion_view        = { };
+        glm::mat4 m_occlusion_perspective = { };
+        bool      m_culling            = true;
+        bool      m_freeze_frustum     = false;
+        bool      m_lod                = true;
+        Frustum   m_current_frustum    = { };
+        u64       m_frame_triangles    = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
         Pipeline m_early_cull_pipeline;
@@ -177,7 +180,7 @@ namespace tl {
         VkDescriptorSetLayout        m_depthpyramid_descriptor_layout;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
-        u64                   m_draws_count          = 100'000;
+        u64                   m_draws_count          = 10'000;
         Buffer                m_command_buffer       = { };
         Buffer                m_draws_buffer         = { };
         std::vector<Draw>     m_draws                = { };
