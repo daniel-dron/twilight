@@ -106,7 +106,9 @@ namespace tl {
 
     void Camera::_update_matrices( ) {
         m_view_matrix       = lookAt( m_position, m_position + m_front, m_up );
-        m_projection_matrix = glm::perspectiveRH( glm::radians( m_fov ), m_aspect_ratio, m_near_plane, m_far_plane );
+
+        // far and near plane are swapped for reverse Z
+        m_projection_matrix = glm::perspectiveRH( glm::radians( m_fov ), m_aspect_ratio, m_far_plane, m_near_plane );
 
         _update_frustum( );
 

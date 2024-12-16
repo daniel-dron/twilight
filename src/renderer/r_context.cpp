@@ -53,7 +53,7 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
 
     _create_descriptor_pool( );
 
-    // create global staging buffer (100MB)
+    // create global staging buffer (200MB)
     staging_buffer = create_buffer( 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
 }
 

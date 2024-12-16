@@ -56,6 +56,7 @@ void Renderer::Initialize( ) {
             .task                 = "../shaders/meshlet.task.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .depth_compare        = VK_COMPARE_OP_GREATER_OR_EQUAL,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = VK_FORMAT_R32G32B32A32_SFLOAT, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );

@@ -31,7 +31,7 @@ void main(
         if (visible && push_data.cull_data.occlusion_data.w == 1) {
             float4 center_view = mul(push_data.cull_data.view_matrix, center);
 
-            if (center_view.z < -0.1f) {
+            if (center_view.z < -0.1 - radius) {
                 // calculate radius for mip level selection
                 float4 center_proj = mul(push_data.cull_data.projection_matrix, float4(center_view.xyz, 1.0));
                 float4 radius_proj = mul(push_data.cull_data.projection_matrix, float4(center_view.xyz + float3(radius, 0, 0), 1.0));
@@ -39,7 +39,7 @@ void main(
                 float2 radius_screen = radius_proj.xy / radius_proj.w;
                 float screen_radius = length(radius_screen - center_screen);
 
-                float mip_level = screen_radius > 0.0f ? floor(log2(screen_radius * 1024.0f)) : 0.0f; // TODO: this +1.0f is bad. Doing it to decrease popping but still bad
+                float mip_level = screen_radius > 0.0f ? floor(log2(screen_radius * 1024.0f)) : 0.0f;
                 mip_level = max(0.0f, mip_level);
                 
                 // bring the center point closer to the camera so we sample the closest point
@@ -47,13 +47,13 @@ void main(
 
                 float4 clip_center = mul(push_data.cull_data.projection_matrix, center_view);            
                 float3 ndc_center = clip_center.xyz / clip_center.w;
-                if (all(ndc_center >= 0.0f) || all(ndc_center <= 1.0f)) {
+                if (all(ndc_center >= -1.0f) && all(ndc_center <= 1.0f)) {
                     float2 uvs = float2(ndc_center.x * 0.5f + 0.5f, ndc_center.y * 0.5f + 0.5f);
 
                     float projected_depth_center = ndc_center.z;
                     float stored_depth = depth_pyramid.SampleLevel(sampler, uvs, mip_level).x;
                     
-                    visible = visible && projected_depth_center < stored_depth;
+                    visible = visible && projected_depth_center > stored_depth;
                 }
             }
         }

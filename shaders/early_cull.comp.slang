@@ -14,6 +14,10 @@ void main(
     uint lod_id = 0;
 
     if ( cmd_id < push_data.cull_data.count) {
+        if ( push_data.cull_data.visibility[cmd_id] == 0) {
+            return;
+        }
+
         Draw draw = push_data.cull_data.draws[cmd_id];
         Mesh mesh = push_data.cull_data.meshes[draw.mesh];
 
@@ -26,7 +30,7 @@ void main(
         }
         
         // Draw meshes that *WERE* visible last frame (and that pass the current frustum check)
-        if (visible && push_data.cull_data.visibility[cmd_id] == 1) {
+        if (visible) {
             uint id;
             InterlockedAdd(push_data.cull_data.out_count[0], 1, id);
 

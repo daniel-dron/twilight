@@ -289,7 +289,7 @@ VkSampler tl::create_reduction_sampler( ) {
     VkSamplerReductionModeCreateInfoEXT info_reduction{
             .sType         = VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT,
             .pNext         = nullptr,
-            .reductionMode = VK_SAMPLER_REDUCTION_MODE_MAX,
+            .reductionMode = VK_SAMPLER_REDUCTION_MODE_MIN,
     };
 
     info.pNext = &info_reduction;
