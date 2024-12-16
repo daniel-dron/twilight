@@ -15,5 +15,6 @@
 #include <types.h>
 
 namespace tl {
-    u32 nearest_pow_2( u32 value );
-}
+    u32         nearest_pow_2( u32 value );
+    std::string read_file_to_string( const char* path );
+} // namespace tl

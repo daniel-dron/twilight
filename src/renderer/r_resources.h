@@ -29,6 +29,12 @@ namespace tl {
     void                      buffer_barrier( VkCommandBuffer cmd, VkBuffer buffer, u64 size, VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access );
 
     // Descriptors
+    struct ShaderBindings {
+        std::vector<VkDescriptorSetLayoutBinding> descriptor_bindings;
+        size_t                                    push_constant_size = 0;
+        VkDescriptorSetLayout                     layout;
+    };
+
     struct DescriptorWrite {
         VkDescriptorType type;
         uint32_t         binding;
@@ -37,6 +43,9 @@ namespace tl {
             VkDescriptorImageInfo  image;
         };
     };
+
+    ShaderBindings                parse_shader_bindings( const std::string& json_content );
+    std::optional<ShaderBindings> create_shader_descriptor_layout( const std::string& json_path );
 
     VkDescriptorPool             create_descriptor_pool( const VkDescriptorPoolSize* sizes, u32 pool_size, u32 max_sets );
     VkDescriptorSetLayout        create_descriptor_layout( const VkDescriptorSetLayoutBinding* bindings, uint32_t binding_count );

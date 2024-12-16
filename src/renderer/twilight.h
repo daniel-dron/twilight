@@ -173,10 +173,7 @@ namespace tl {
         VkSampler m_linear_sampler    = VK_NULL_HANDLE;
         VkSampler m_reduction_sampler = VK_NULL_HANDLE; // Sampler used for MAX reduction on depth pyramid creation
 
-        VkDescriptorSetLayout        m_late_cull_descriptor_layout = VK_NULL_HANDLE;
         std::vector<VkDescriptorSet> m_late_cull_set;
-
-        VkDescriptorSetLayout        m_depthpyramid_descriptor_layout;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
         u64                   m_draws_count          = 1'000'000;

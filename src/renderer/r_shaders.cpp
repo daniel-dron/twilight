@@ -15,6 +15,7 @@
 #include <renderer/r_context.h>
 #include <types.h>
 #include <vulkan/vulkan_core.h>
+#include "r_resources.h"
 #include "r_shaders.h"
 
 using namespace tl;
@@ -54,16 +55,25 @@ static VkPipelineColorBlendAttachmentState create_blend_attachment_state( const 
 }
 
 void Pipeline::initialize( const PipelineConfig& config ) {
+    std::vector<VkDescriptorSetLayout> layouts = config.descriptor_set_layouts;
+
     if ( config.compute != nullptr ) {
         auto compute = load_shader_module( config.compute );
         assert( compute );
+
+        auto binding = create_shader_descriptor_layout( std::string( config.compute ) + ".json" );
+        if ( binding.has_value( ) ) {
+            bindings[BindingsStage::COMPUTE] = binding.value( );
+            layouts.emplace_back( bindings[BindingsStage::COMPUTE].layout );
+        }
+
 
         VkPipelineLayoutCreateInfo layout_info = {
                 .sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .pNext          = nullptr,
                 .flags          = 0,
-                .setLayoutCount = static_cast<uint32_t>( config.descriptor_set_layouts.size( ) ),
-                .pSetLayouts    = config.descriptor_set_layouts.empty( ) ? nullptr : config.descriptor_set_layouts.data( ),
+                .setLayoutCount = static_cast<uint32_t>( layouts.size( ) ),
+                .pSetLayouts    = layouts.empty( ) ? nullptr : layouts.data( ),
 
                 .pushConstantRangeCount = static_cast<uint32_t>( config.push_constant_ranges.size( ) ),
                 .pPushConstantRanges =
@@ -104,6 +114,11 @@ void Pipeline::initialize( const PipelineConfig& config ) {
                                                                               .module              = vertex,
                                                                               .pName               = "main",
                                                                               .pSpecializationInfo = nullptr } );
+            auto binding = create_shader_descriptor_layout( std::string( config.vertex ) + ".json" );
+            if ( binding.has_value( ) ) {
+                bindings[BindingsStage::VERTEX] = binding.value( );
+                layouts.emplace_back( bindings[BindingsStage::VERTEX].layout );
+            }
         }
         else if ( config.mesh ) {
             if ( config.task ) {
@@ -116,6 +131,11 @@ void Pipeline::initialize( const PipelineConfig& config ) {
                                                                                   .module              = task,
                                                                                   .pName               = "main",
                                                                                   .pSpecializationInfo = nullptr } );
+                auto binding = create_shader_descriptor_layout( std::string( config.task ) + ".json" );
+                if ( binding.has_value( ) ) {
+                    bindings[BindingsStage::TASK] = binding.value( );
+                    layouts.emplace_back( bindings[BindingsStage::TASK].layout );
+                }
             }
 
             mesh = load_shader_module( config.mesh );
@@ -127,6 +147,11 @@ void Pipeline::initialize( const PipelineConfig& config ) {
                                                                               .module              = mesh,
                                                                               .pName               = "main",
                                                                               .pSpecializationInfo = nullptr } );
+            auto binding = create_shader_descriptor_layout( std::string( config.mesh ) + ".json" );
+            if ( binding.has_value( ) ) {
+                bindings[BindingsStage::MESH] = binding.value( );
+                layouts.emplace_back( bindings[BindingsStage::MESH].layout );
+            }
         }
 
         const auto pixel = load_shader_module( config.pixel );
@@ -138,6 +163,11 @@ void Pipeline::initialize( const PipelineConfig& config ) {
                                                                           .module              = pixel,
                                                                           .pName               = "main",
                                                                           .pSpecializationInfo = nullptr } );
+        auto binding = create_shader_descriptor_layout( std::string( config.pixel ) + ".json" );
+        if ( binding.has_value( ) ) {
+            bindings[BindingsStage::FRAGMENT] = binding.value( );
+            layouts.emplace_back( bindings[BindingsStage::FRAGMENT].layout );
+        }
 
         std::vector<VkFormat>                            color_formats;
         std::vector<VkPipelineColorBlendAttachmentState> blend_attachments;
@@ -222,8 +252,8 @@ void Pipeline::initialize( const PipelineConfig& config ) {
                 .sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .pNext          = nullptr,
                 .flags          = 0,
-                .setLayoutCount = static_cast<uint32_t>( config.descriptor_set_layouts.size( ) ),
-                .pSetLayouts    = config.descriptor_set_layouts.empty( ) ? nullptr : config.descriptor_set_layouts.data( ),
+                .setLayoutCount = static_cast<uint32_t>( layouts.size( ) ),
+                .pSetLayouts    = layouts.empty( ) ? nullptr : layouts.data( ),
 
                 .pushConstantRangeCount = static_cast<uint32_t>( config.push_constant_ranges.size( ) ),
                 .pPushConstantRanges =
@@ -268,6 +298,10 @@ void Pipeline::initialize( const PipelineConfig& config ) {
 }
 
 void Pipeline::shutdown( ) {
+    for ( auto& [_, binding] : bindings ) {
+        vkDestroyDescriptorSetLayout( g_ctx.device, binding.layout, nullptr );
+    }
+
     vkDestroyPipelineLayout( g_ctx.device, layout, nullptr );
     vkDestroyPipeline( g_ctx.device, pipeline, nullptr );
 }

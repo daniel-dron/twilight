@@ -1,6 +1,6 @@
 [[vk_binding(0)]] Texture2D<float> depth;
-[[vk_binding(1)]] Texture2D<float> depth_mips[];
-[[vk_binding(2)]] RWTexture2D<float> out_color[];
+[[vk_binding(1)]] Texture2D<float> depth_mips[12];
+[[vk_binding(2)]] RWTexture2D<float> out_color[12];
 [[vk_binding(3)]] SamplerState sampler;
 
 [[vk_push_constant]]

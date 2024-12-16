@@ -27,6 +27,7 @@
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
 #include "r_resources.h"
+#include "r_shaders.h"
 #include "renderer/r_resources.h"
 #include "types.h"
 
@@ -70,33 +71,19 @@ void Renderer::Initialize( int count ) {
             .compute              = "../shaders/early_cull.comp.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
-    std::array<VkDescriptorSetLayoutBinding, 2> late_bindings = {
-            VkDescriptorSetLayoutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-            VkDescriptorSetLayoutBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-
-    };
-    m_late_cull_descriptor_layout = create_descriptor_layout( late_bindings.data( ), late_bindings.size( ) );
     m_late_cull_pipeline.initialize( PipelineConfig{
-            .name                   = "late cull commands",
-            .compute                = "../shaders/late_cull.comp.slang.spv",
-            .push_constant_ranges   = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } },
-            .descriptor_set_layouts = { m_late_cull_descriptor_layout } } );
-    m_late_cull_set = allocate_descript_set( g_ctx.descriptor_pool, m_late_cull_descriptor_layout, g_ctx.frame_overlap );
-
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings = {
-            VkDescriptorSetLayoutBinding{ .binding = 0, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-            VkDescriptorSetLayoutBinding{ .binding = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = g_ctx.frames[0].depth_pyramid_levels, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-            VkDescriptorSetLayoutBinding{ .binding = 2, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = g_ctx.frames[0].depth_pyramid_levels, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-            VkDescriptorSetLayoutBinding{ .binding = 3, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT },
-    };
-    m_depthpyramid_descriptor_layout = create_descriptor_layout( bindings.data( ), bindings.size( ) );
-    m_depthpyramid_pipeline.initialize( PipelineConfig{
-            .name                   = "depth pyramid",
-            .compute                = "../shaders/depth_pyramid.comp.slang.spv",
-            .push_constant_ranges   = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DepthPyramidPushConstants ) } },
-            .descriptor_set_layouts = { m_depthpyramid_descriptor_layout },
+            .name                 = "late cull commands",
+            .compute              = "../shaders/late_cull.comp.slang.spv",
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } },
     } );
-    m_depthpyramid_sets = allocate_descript_set( g_ctx.descriptor_pool, m_depthpyramid_descriptor_layout, g_ctx.frame_overlap );
+    m_late_cull_set = allocate_descript_set( g_ctx.descriptor_pool, m_late_cull_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
+
+    m_depthpyramid_pipeline.initialize( PipelineConfig{
+            .name                 = "depth pyramid",
+            .compute              = "../shaders/depth_pyramid.comp.slang.spv",
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DepthPyramidPushConstants ) } },
+    } );
+    m_depthpyramid_sets = allocate_descript_set( g_ctx.descriptor_pool, m_depthpyramid_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
 
     m_linear_sampler    = create_sampler( );
     m_reduction_sampler = create_reduction_sampler( );
@@ -209,9 +196,6 @@ void Renderer::Shutdown( ) {
     destroy_buffer( m_scene_geometry.meshes_buffer );
     destroy_buffer( m_cull_data[0] );
     destroy_buffer( m_cull_data[1] );
-
-    vkDestroyDescriptorSetLayout( g_ctx.device, m_depthpyramid_descriptor_layout, nullptr );
-    vkDestroyDescriptorSetLayout( g_ctx.device, m_late_cull_descriptor_layout, nullptr );
 
     m_early_cull_pipeline.shutdown( );
     m_late_cull_pipeline.shutdown( );

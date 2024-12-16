@@ -69,5 +69,9 @@ target_sources(tracy PRIVATE
 target_compile_definitions(tracy PUBLIC TRACY_ENABLE)
 target_include_directories(tracy PUBLIC tracy)
 
+# Json
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+add_subdirectory(json)
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-set_target_properties(sdl_headers_copy tracy meshoptimizer assimp glm vma fmt imgui SDL2 vkbootstrap volk PROPERTIES FOLDER Dependencies)
+set_target_properties(sdl_headers_copy tracy meshoptimizer assimp glm vma fmt imgui SDL2 vkbootstrap volk nlohmann_json PROPERTIES FOLDER Dependencies)

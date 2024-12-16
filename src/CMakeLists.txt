@@ -60,7 +60,7 @@ target_include_directories(TwilightEngine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # Pre-Compiled Headers for faster compilation
 target_precompile_headers(TwilightEngine PRIVATE pch.h)
 
-target_link_libraries(TwilightEngine PUBLIC tracy meshoptimizer assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
+target_link_libraries(TwilightEngine PUBLIC tracy meshoptimizer assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui nlohmann_json::nlohmann_json)
 # target_link_libraries(TwilightEngine PUBLIC tracy assimp glm vma fmt::fmt vkbootstrap SDL2::SDL2 stb_image imgui)
 
 # SHADERS

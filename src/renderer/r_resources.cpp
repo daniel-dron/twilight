@@ -11,9 +11,12 @@
 ******************************************************************************
 ******************************************************************************/
 #include <cstddef>
+#include <optional>
 #include <pch.h>
 #include <vulkan/vulkan_core.h>
 
+#include <nlohmann/json.hpp>
+#include <utils.h>
 #include "r_context.h"
 #include "r_resources.h"
 #include "renderer/r_context.h"
@@ -185,6 +188,102 @@ void tl::buffer_barrier( VkCommandBuffer cmd, VkBuffer buffer, u64 size, VkPipel
     };
     vkCmdPipelineBarrier2( cmd, &dependency_info );
 }
+
+namespace {
+    VkDescriptorType get_descriptor_type( const nlohmann::json& type ) {
+        const auto& kind = type["kind"].get<std::string>( );
+
+        if ( kind == "resource" ) {
+            const auto& shape = type["baseShape"].get<std::string>( );
+            const bool  is_rw = type.contains( "access" ) && type["access"] == "readWrite";
+
+            if ( shape == "texture2D" ) {
+                return is_rw ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            }
+
+            // ...
+        }
+        else if ( kind == "samplerState" ) {
+            return VK_DESCRIPTOR_TYPE_SAMPLER;
+        }
+        else if ( kind == "array" ) {
+            return get_descriptor_type( type["elementType"] );
+        }
+
+        return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+    }
+} // namespace
+
+ShaderBindings tl::parse_shader_bindings( const std::string& json_content ) {
+    ShaderBindings result;
+    nlohmann::json shader_json = nlohmann::json::parse( json_content );
+
+    std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> binding_map;
+
+    // Process parameters
+    for ( const auto& param : shader_json["parameters"] ) {
+        const auto&       binding_info = param["binding"];
+        const std::string binding_kind = binding_info["kind"].get<std::string>( );
+
+        if ( binding_kind == "descriptorTableSlot" ) {
+            uint32_t binding_index = binding_info["index"].get<uint32_t>( );
+
+            // Skip if we already processed this binding
+            if ( binding_map.find( binding_index ) != binding_map.end( ) ) {
+                continue;
+            }
+
+            VkDescriptorSetLayoutBinding layout_binding = { };
+            layout_binding.binding                      = binding_index;
+            layout_binding.descriptorType               = get_descriptor_type( param["type"] );
+            layout_binding.descriptorCount              = 1;
+            layout_binding.stageFlags                   = VK_SHADER_STAGE_COMPUTE_BIT; // Assuming compute shader
+
+            // Handle arrays
+            if ( param["type"]["kind"] == "array" ) {
+                if ( param["type"]["elementCount"].is_number( ) ) {
+                    layout_binding.descriptorCount = param["type"]["elementCount"].get<uint32_t>( );
+                }
+                else {
+                    // If elementCount is 0 or not specified, we'll use a reasonable default
+                    layout_binding.descriptorCount = 16; // You might want to make this configurable
+                }
+            }
+
+            binding_map[binding_index] = layout_binding;
+        }
+        else if ( binding_kind == "pushConstantBuffer" ) {
+            // Process push constant size
+            if ( param["type"]["elementType"].contains( "size" ) ) {
+                result.push_constant_size = param["type"]["elementType"]["binding"]["size"].get<size_t>( );
+            }
+        }
+    }
+
+    // Convert binding map to vector
+    result.descriptor_bindings.reserve( binding_map.size( ) );
+    for ( const auto& [_, binding] : binding_map ) {
+        result.descriptor_bindings.push_back( binding );
+    }
+
+    return result;
+}
+
+std::optional<ShaderBindings> tl::create_shader_descriptor_layout( const std::string& json_path ) {
+    auto json_content = read_file_to_string( json_path.c_str( ) );
+    ShaderBindings bindings = parse_shader_bindings( json_content );
+
+    if ( bindings.descriptor_bindings.empty( ) ) {
+        return std::nullopt;
+    }
+
+    bindings.layout = create_descriptor_layout(
+            bindings.descriptor_bindings.data( ),
+            static_cast<uint32_t>( bindings.descriptor_bindings.size( ) ) );
+
+    return bindings;
+}
+
 
 VkDescriptorPool tl::create_descriptor_pool( const VkDescriptorPoolSize* sizes, u32 pool_size, u32 max_sets ) {
     VkDescriptorPool pool{ };

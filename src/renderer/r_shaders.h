@@ -14,6 +14,8 @@
 #pragma once
 
 #include <Volk/volk.h>
+#include <unordered_map>
+#include "r_resources.h"
 
 namespace tl {
     struct PipelineConfig {
@@ -49,9 +51,19 @@ namespace tl {
         std::vector<VkDescriptorSetLayout> descriptor_set_layouts;
     };
 
+    enum class BindingsStage : u32 {
+        COMPUTE,
+        TASK,
+        MESH,
+        VERTEX,
+        FRAGMENT
+    };
+
     struct Pipeline {
         VkPipeline       pipeline = VK_NULL_HANDLE;
         VkPipelineLayout layout   = VK_NULL_HANDLE;
+
+        std::unordered_map<BindingsStage, ShaderBindings> bindings = { };
 
         void initialize( const PipelineConfig& config );
         void shutdown( );
