@@ -38,7 +38,11 @@
 
 using namespace tl;
 
-void Renderer::Initialize( ) {
+void Renderer::Initialize( int count ) {
+    if ( count > 0 ) {
+        m_draws_count = count;
+    }
+
     // Initialize SDL
     SDL_Init( SDL_INIT_VIDEO );
     SDL_WindowFlags flags = ( SDL_WindowFlags )( SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE );
@@ -111,15 +115,11 @@ void Renderer::Initialize( ) {
 
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
-    load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
-    load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
+    // load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
+    // load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
     // Upload scene geometry to the gpu
     _upload_scene_geometry( );
-
-    u64 count  = m_draws_count;
-    f32 radius = 120.0f;
-    m_draws.reserve( count );
 
     // float     scale = 5.0f;
     // glm::mat4 model = glm::translate( glm::mat4( 1.0f ), glm::vec3( 15.0f, 0.0f, 0.0f ) );
@@ -129,25 +129,34 @@ void Renderer::Initialize( ) {
     // model = glm::translate( glm::mat4( 1.0f ), glm::vec3( 25.0f, 0.0f, 0.0f ) );
     // m_draws.emplace_back( Draw{ model, 0 } );
 
-    std::random_device                    rd;
-    std::mt19937                          gen( rd( ) );
-    std::uniform_real_distribution<float> posDist( -radius, radius );
-    std::uniform_real_distribution<float> rotDist( 0.0f, 360.0f );
-    std::uniform_real_distribution<float> scaleDist( 0.1f, 2.0f );
+    std::random_device rd;
+    std::mt19937       gen( rd( ) );
 
-    for ( int i = 0; i < count; ++i ) {
+    m_draws.reserve( m_draws_count );
+
+    float base_mesh_size     = 5.0f;
+    float avg_scale          = ( 0.1f + 2.0f ) / 2.0f;
+    float avg_mesh_size      = base_mesh_size * avg_scale;
+    float spacing_multiplier = 4.0f;
+    float radius             = powf( powf( avg_mesh_size * spacing_multiplier, 3 ) * m_draws_count / 8.0f, 1.0f / 3.0f );
+
+    std::uniform_real_distribution<float> pos_dist( -radius, radius );
+    std::uniform_real_distribution<float> rot_dist( 0.0f, 360.0f );
+    std::uniform_real_distribution<float> scale_dist( 0.1f, 2.0f );
+
+    for ( int i = 0; i < m_draws_count; ++i ) {
         u64 mesh_id = rand( ) % m_scene_geometry.meshes.size( );
 
         glm::vec3 position(
-                posDist( gen ),
-                posDist( gen ),
-                posDist( gen ) );
+                pos_dist( gen ),
+                pos_dist( gen ),
+                pos_dist( gen ) );
 
-        float rotX = glm::radians( rotDist( gen ) );
-        float rotY = glm::radians( rotDist( gen ) );
-        float rotZ = glm::radians( rotDist( gen ) );
+        float rotX = glm::radians( rot_dist( gen ) );
+        float rotY = glm::radians( rot_dist( gen ) );
+        float rotZ = glm::radians( rot_dist( gen ) );
 
-        float scale = scaleDist( gen );
+        float scale = scale_dist( gen );
         // if ( mesh_id == 0 ) {
         // scale /= 100.0f;
         // }
@@ -226,7 +235,13 @@ void Renderer::Run( ) {
     f64 avg_cull_time      = 0;
     f64 avg_late_cull_time = 0;
 
+    m_last_frame_time = get_time( );
+
     while ( !m_quit ) {
+        f64 current_time  = get_time( );
+        m_delta_time      = current_time - m_last_frame_time;
+        m_last_frame_time = current_time;
+
         auto cpu_time_start = get_time( );
 
         process_events( );
@@ -382,19 +397,10 @@ void Renderer::Run( ) {
         avg_cull_time      = avg_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_FIRST_CULL_STEP_START], frame.gpu_timestamps[GPU_TOTAL_FIRST_CULL_STEP_END] ) ) * 0.05f;
         avg_late_cull_time = avg_late_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_SECOND_CULL_STEP_START], frame.gpu_timestamps[GPU_TOTAL_SECOND_CULL_STEP_END] ) ) * 0.05f;
 
-        f64 triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
-
-        std::string depth_text;
-        if ( m_display_depth == -1 ) {
-            depth_text = "color";
-        }
-        else {
-            depth_text = std::string( "pyramid mip " ) + std::to_string( m_display_depth - 1 );
-        }
-
-        auto& front = m_camera.get_front( );
-        auto  title = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; triangles {:.2f}M; {:.1f}B tri/sec; draws: {}; frustum: {}{}; occlusion: {}; depth: {}",
-                                   avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, f64( m_frame_triangles ) * 1e-6, triangles_per_sec * 1e-9, m_draws_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", depth_text.c_str( ) );
+        f64   triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
+        auto& front             = m_camera.get_front( );
+        auto  title             = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; draws: {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
+                                               avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, m_draws_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", ( m_lock_occlusion ) ? " (FROZEN)" : "" );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -413,7 +419,7 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, bool b_clear_color, b
             .loadOp      = b_clear_depth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
             .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
             .clearValue  = {
-                     .depthStencil = { .depth = 1.0f } } };
+                     .depthStencil = { .depth = 0.0f } } };
     VkRenderingInfo render_info = {
             .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
             .pNext                = nullptr,
@@ -531,9 +537,10 @@ void Renderer::_late_cull( ) {
     vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
     buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
-    if (!m_lock_occlusion) {
+    if ( !m_lock_occlusion ) {
         image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
-    } else {
+    }
+    else {
         image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
     }
 
@@ -768,17 +775,10 @@ void Renderer::process_events( ) {
             else if ( event.key.keysym.scancode == SDL_SCANCODE_L ) {
                 m_lod = !m_lod;
             }
-            else if ( event.key.keysym.scancode == SDL_SCANCODE_P ) {
-                m_display_depth++;
-
-                if ( m_display_depth >= g_ctx.frames[0].depth_pyramid_levels ) {
-                    m_display_depth = -1;
-                }
-            }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_O ) {
                 m_occlusion = !m_occlusion;
             }
-            else if ( event.key.keysym.scancode == SDL_SCANCODE_I ) {
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_P ) {
                 m_lock_occlusion = !m_lock_occlusion;
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
@@ -830,7 +830,7 @@ void Renderer::process_events( ) {
         movement += m_camera.get_right( );
     if ( glm::length( movement ) > 0 ) {
         glm::vec3 current_pos = m_camera.get_position( );
-        m_camera.set_position( current_pos + glm::normalize( movement ) * move_speed );
+        m_camera.set_position( current_pos + glm::normalize( movement ) * move_speed * ( f32 )m_delta_time );
     }
 }
 

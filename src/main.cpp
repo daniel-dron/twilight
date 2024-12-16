@@ -20,12 +20,27 @@
 ******************************************************************************************
 *****************************************************************************************/
 
+#include <cstdlib>
 #include <renderer/twilight.h>
 
 int main( int argc, char* argv[] ) {
 
+    int count = 0;
+
+    if ( argc > 1 ) {
+        try {
+            std::string arg = argv[1];
+            count           = atoi( arg.c_str( ) );
+            if ( count >= 2'000'000 ) {
+                count = 2'000'000;
+            }
+        }
+        catch ( ... ) {
+        }
+    }
+
     tl::Renderer renderer;
-    renderer.Initialize( );
+    renderer.Initialize( count );
 
     renderer.Run( );
 
