@@ -101,9 +101,9 @@ void Renderer::Initialize( int count ) {
             create_buffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true ) };
 
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
-    load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
+    // load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
     // load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
-    // load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
+    load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
     // Upload scene geometry to the gpu
     _upload_scene_geometry( );

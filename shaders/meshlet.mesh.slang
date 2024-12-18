@@ -25,6 +25,30 @@ struct PushData {
 [[vk_push_constant]]
 PushData push_data;
 
+float3 get_meshlet_debug_color(uint meshlet_id) {
+    static const float goldenConj = 0.618033988749895f;
+    float hue = fmod(float(meshlet_id) * goldenConj, 1.0f);
+    
+    // Convert HSV to RGB with S=0.95, V=0.95
+    float h = hue * 6.0f;
+    static const float s = 0.95f;
+    static const float v = 0.95f;
+    
+    float c = v * s;
+    float x = c * (1.0f - abs(fmod(h, 2.0f) - 1.0f));
+    float m = v - c;
+    
+    float3 rgb;
+    if(h < 1.0f)      { rgb = float3(c, x, 0); }
+    else if(h < 2.0f) { rgb = float3(x, c, 0); }
+    else if(h < 3.0f) { rgb = float3(0, c, x); }
+    else if(h < 4.0f) { rgb = float3(0, x, c); }
+    else if(h < 5.0f) { rgb = float3(x, 0, c); }
+    else              { rgb = float3(c, 0, x); }
+    
+    return rgb + m;
+}
+
 [shader("mesh")]
 [numthreads(32, 1, 1)]
 [outputtopology("triangle")]
