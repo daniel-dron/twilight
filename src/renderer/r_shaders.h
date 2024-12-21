@@ -38,7 +38,8 @@ namespace tl {
 
         enum class BlendType { OFF,
                                ADDITIVE,
-                               ALPHA_BLEND };
+                               ALPHA_BLEND,
+                               ACCUMULATE };
         struct ColorTargetsConfig {
             VkFormat  format     = VK_FORMAT_R8G8B8A8_SRGB;
             BlendType blend_type = BlendType::OFF;

@@ -155,6 +155,7 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
+        bool      m_visualize_overdraw    = false;
         bool      m_occlusion             = true;
         bool      m_lock_occlusion        = false;
         glm::mat4 m_occlusion_view        = { };
@@ -170,19 +171,23 @@ namespace tl {
         Pipeline m_late_cull_pipeline;
         Pipeline m_depthpyramid_pipeline;
 
+        Pipeline                     m_overdraw_accumulation_pipeline  = { };
+        Pipeline                     m_overdraw_visualization_pipeline = { };
+        std::vector<VkDescriptorSet> m_overdraw_sets                   = { };
+
         VkSampler m_linear_sampler    = VK_NULL_HANDLE;
         VkSampler m_reduction_sampler = VK_NULL_HANDLE; // Sampler used for MAX reduction on depth pyramid creation
 
         std::vector<VkDescriptorSet> m_late_cull_set;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
-        u64                   m_draws_count           = 1'000'000;
-        Buffer                m_command_buffer        = { };
-        Buffer                m_draws_buffer          = { };
-        std::vector<Draw>     m_draws                 = { };
-        Buffer                m_command_count_buffer  = { };
-        std::array<Buffer, 2> m_cull_data             = { };
-        std::array<Buffer, 3> m_visible_draws         = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
+        u64                   m_draws_count          = 1'000'000;
+        Buffer                m_command_buffer       = { };
+        Buffer                m_draws_buffer         = { };
+        std::vector<Draw>     m_draws                = { };
+        Buffer                m_command_count_buffer = { };
+        std::array<Buffer, 2> m_cull_data            = { };
+        std::array<Buffer, 3> m_visible_draws        = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
         // 0 -> 1 frame
         // 1 -> another frame
         // 2 -> buffer frame used to copy between them

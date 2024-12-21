@@ -85,6 +85,24 @@ void Renderer::Initialize( int count ) {
     } );
     m_depthpyramid_sets = allocate_descript_set( g_ctx.descriptor_pool, m_depthpyramid_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
 
+    m_overdraw_accumulation_pipeline.initialize( PipelineConfig{
+            .name                 = "overdraw accumulation",
+            .pixel                = "../shaders/overdraw_acc.frag.slang.spv",
+            .mesh                 = "../shaders/meshlet.mesh.slang.spv",
+            .task                 = "../shaders/meshlet.task.slang.spv",
+            .cull_mode            = VK_CULL_MODE_BACK_BIT,
+            .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .depth_compare        = VK_COMPARE_OP_GREATER_OR_EQUAL,
+            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = VK_FORMAT_R32G32B32A32_SFLOAT, .blend_type = PipelineConfig::BlendType::ACCUMULATE } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
+    } );
+
+    m_overdraw_visualization_pipeline.initialize( PipelineConfig{
+            .name    = "overdraw visualization",
+            .compute = "../shaders/overdraw_viz.comp.slang.spv",
+    } );
+    m_overdraw_sets = allocate_descript_set( g_ctx.descriptor_pool, m_overdraw_visualization_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
+
     m_linear_sampler    = create_sampler( );
     m_reduction_sampler = create_reduction_sampler( );
 
@@ -201,6 +219,9 @@ void Renderer::Shutdown( ) {
     m_late_cull_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
     m_depthpyramid_pipeline.shutdown( );
+
+    m_overdraw_accumulation_pipeline.shutdown( );
+    m_overdraw_visualization_pipeline.shutdown( );
 
     for ( auto& set : m_depthpyramid_sets ) {
         vkFreeDescriptorSets( g_ctx.device, g_ctx.descriptor_pool, 1, &set );
@@ -324,8 +345,27 @@ void Renderer::Run( ) {
                 .size      = m_visible_draws[2].size };
         vkCmdCopyBuffer( cmd, visible_draws.buffer, m_visible_draws[2].buffer, 1, &copy_to );
 
+        // Transform overdraw accumulation into a overdraw heatmap visualization
+        if ( m_visualize_overdraw ) {
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL );
+            // descriptor set
+            std::array<DescriptorWrite, 2> writes = {
+                    DescriptorWrite{ .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .binding = 0, .image = VkDescriptorImageInfo{ .imageView = frame.color.view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL } },
+                    DescriptorWrite{ .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .binding = 1, .image = VkDescriptorImageInfo{ .imageView = frame.color.view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL } },
+            };
+            update_descriptor_set( m_overdraw_sets[g_ctx.get_current_frame_index( )], writes.data( ), writes.size( ) );
+
+            vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_overdraw_visualization_pipeline.pipeline );
+            vkCmdBindDescriptorSets( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_overdraw_visualization_pipeline.layout, 0, 1, &m_overdraw_sets[g_ctx.get_current_frame_index( )], 0, 0 );
+            vkCmdDispatch( cmd, u32( g_ctx.swapchain.width + 31 ) / 32, u32( g_ctx.swapchain.height + 31 ) / 32, 1 );
+
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+        }
+        else {
+            image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+        }
+
         image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
-        image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
         auto depth_levels = frame.depth_pyramid_levels;
         auto depth_width  = g_ctx.swapchain.width / depth_levels - 5;
         for ( u32 i = 0; i < depth_levels; i++ ) {
@@ -407,6 +447,8 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, bool b_clear_color, b
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
 
+    Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : m_mesh_pipeline;
+
     VkClearValue              clear_color{ 0.05f, 0.1f, 0.3f, 1.0f };
     std::array                attachments = { attachment( frame.color.view, b_clear_color ? &clear_color : nullptr ) };
     VkRenderingAttachmentInfo depth_attachment{
@@ -437,7 +479,7 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, bool b_clear_color, b
             .extent = { .width = width, .height = height } };
     vkCmdSetScissor( cmd, 0, 1, &scissor );
 
-    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_mesh_pipeline.pipeline );
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline );
 
     // Camera matrices
     ScenePushConstants pc{
@@ -452,7 +494,7 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, bool b_clear_color, b
             .draw_cmds            = m_command_buffer.device_address,
     };
 
-    vkCmdPushConstants( cmd, m_mesh_pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
+    vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
     vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
 
     vkCmdEndRendering( cmd );
@@ -778,6 +820,9 @@ void Renderer::process_events( ) {
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_P ) {
                 m_lock_occlusion = !m_lock_occlusion;
+            }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_V ) {
+                m_visualize_overdraw = !m_visualize_overdraw;
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
                 auto& draw = m_draws.at( 0 );
