@@ -96,10 +96,12 @@ The engine implements several optimization techniques:
 - [x] GPU occlusion culling
 	- [ ] Fix minor popping
 	- [x] Freeze camera/depth to view occlusion results
-- [ ] Dynamic Descriptor Layout (parse slang json)
-- [ ] GPU triangle culling
-- [ ] Ray tracing integration
+- [x] Dynamic Descriptor Layout (parse slang json)
+- [ ] GPU Triangle culling
+- [ ] GPU Meshlet culling
+- [ ] Scene Loading
 - [ ] Dynamic object support
+- [ ] Ray tracing integration
 - [ ] Clustered rendering
 - [ ] Material system
     - [ ] Image Compression

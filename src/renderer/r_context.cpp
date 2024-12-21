@@ -54,13 +54,15 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
     _create_descriptor_pool( );
 
     // create global staging buffer (200MB)
-    staging_buffer = create_buffer( 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
+    staging_buffer  = create_buffer( 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
+    readback_buffer = create_buffer( 1000, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU, false, true );
 }
 
 void Context::shutdown( ) {
     swapchain.shutdown( device );
 
     destroy_buffer( staging_buffer );
+    destroy_buffer( readback_buffer );
 
     // shutdown frames
     for ( auto& frame : frames ) {

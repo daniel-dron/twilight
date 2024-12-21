@@ -89,7 +89,7 @@ void Renderer::Initialize( int count ) {
     m_reduction_sampler = create_reduction_sampler( );
 
     m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_visible_draws        = {
             create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true ),
@@ -282,6 +282,12 @@ void Renderer::Run( ) {
         buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx );
 
+        VkBufferCopy draws_copy = {
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size      = sizeof( u32 ) };
+        vkCmdCopyBuffer( cmd, m_command_count_buffer.buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
+
         // STEP 3 [Depth Pyramid Construction]
         if ( !m_lock_occlusion ) {
             _construct_depth_pyramid( );
@@ -300,6 +306,12 @@ void Renderer::Run( ) {
         // Render the objects that passed the late cull step
         buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, false, false ); // Dont clear color and depth
+
+        draws_copy = {
+                .srcOffset = 0,
+                .dstOffset = sizeof( u32 ),
+                .size      = sizeof( u32 ) };
+        vkCmdCopyBuffer( cmd, m_command_count_buffer.buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
 
         // STEP 6
         // Copy visibility buffer from this frame to staging visibility buffer
@@ -373,6 +385,8 @@ void Renderer::Run( ) {
         // Timers
         vkGetQueryPoolResults( g_ctx.device, frame.query_pool_timestamps, 0, 6, frame.gpu_timestamps.size( ) * sizeof( u64 ), frame.gpu_timestamps.data( ), sizeof( u64 ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
 
+        auto after_culling_count = read_from_buffer<u32>( g_ctx.readback_buffer ) + read_from_buffer<u32>( g_ctx.readback_buffer, sizeof( u32 ) );
+
         g_ctx.current_frame++;
         auto cpu_time_end = get_time( );
 
@@ -383,8 +397,8 @@ void Renderer::Run( ) {
 
         f64   triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
         auto& front             = m_camera.get_front( );
-        auto  title             = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; draws: {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
-                                               avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, m_draws_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", ( m_lock_occlusion ) ? " (FROZEN)" : "" );
+        auto  title             = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; draws: {} {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
+                                               avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, m_draws_count, after_culling_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", ( m_lock_occlusion ) ? " (FROZEN)" : "" );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }

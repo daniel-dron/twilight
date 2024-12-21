@@ -84,6 +84,11 @@ namespace tl {
     void   destroy_buffer( Buffer& buffer );
     void   upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset = 0 );
 
+    template<typename T>
+    T read_from_buffer( Buffer buffer, u64 offset = 0 ) {
+        return *( T* )( buffer.gpu_data + offset );
+    }
+
     // Image
     struct Image {
         VkImage       image      = VK_NULL_HANDLE;

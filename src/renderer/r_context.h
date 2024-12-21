@@ -28,9 +28,9 @@ namespace tl {
         VkSemaphore     render_semaphore;
         VkFence         fence;
         Image           color;
-        
-        Image           depth;
-        Image           depth_pyramid;
+
+        Image depth;
+        Image depth_pyramid;
 
         u32                         depth_pyramid_size = 0;
         std::array<VkImageView, 16> depth_pyramid_mips;
@@ -70,6 +70,7 @@ namespace tl {
         VkCommandBuffer global_cmd;
         VkFence         global_fence;
         Buffer          staging_buffer;
+        Buffer          readback_buffer;
 
         VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 
