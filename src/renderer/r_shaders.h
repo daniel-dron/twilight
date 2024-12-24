@@ -26,8 +26,9 @@ namespace tl {
         const char* const mesh    = nullptr;
         const char* const task    = nullptr;
 
-        VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
-        float         line_width   = 1.0f;
+        VkPolygonMode       polygon_mode = VK_POLYGON_MODE_FILL;
+        float               line_width   = 1.0f;
+        VkPrimitiveTopology topology     = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
         VkCullModeFlags cull_mode  = VK_CULL_MODE_BACK_BIT;
         VkFrontFace     front_face = VK_FRONT_FACE_CLOCKWISE;

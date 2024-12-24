@@ -66,6 +66,20 @@ void Renderer::Initialize( int count ) {
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
 
+    m_aabb_pipeline.initialize( PipelineConfig{
+            .name                 = "aabb",
+            .pixel                = "../shaders/meshlet.frag.slang.spv",
+            .mesh                 = "../shaders/aabb.mesh.slang.spv",
+            .task                 = "../shaders/aabb.task.slang.spv",
+            .polygon_mode         = VK_POLYGON_MODE_LINE,
+            .topology             = VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+            .cull_mode            = VK_CULL_MODE_NONE,
+            .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .depth_compare        = VK_COMPARE_OP_GREATER_OR_EQUAL,
+            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = VK_FORMAT_R32G32B32A32_SFLOAT, .blend_type = PipelineConfig::BlendType::OFF } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
+    } );
+
     m_early_cull_pipeline.initialize( PipelineConfig{
             .name                 = "early cull commands",
             .compute              = "../shaders/early_cull.comp.slang.spv",
@@ -119,9 +133,9 @@ void Renderer::Initialize( int count ) {
             create_buffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true ) };
 
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
-    // load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
+    load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
     // load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
-    load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
+    // load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
     // Upload scene geometry to the gpu
     _upload_scene_geometry( );
@@ -218,6 +232,7 @@ void Renderer::Shutdown( ) {
     m_early_cull_pipeline.shutdown( );
     m_late_cull_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
+    m_aabb_pipeline.shutdown( );
     m_depthpyramid_pipeline.shutdown( );
 
     m_overdraw_accumulation_pipeline.shutdown( );
@@ -255,6 +270,8 @@ void Renderer::Run( ) {
         auto  cmd                 = frame.cmd;
         auto& visible_draws       = m_visible_draws[g_ctx.get_current_frame_index( )];
         u32   swapchain_image_idx = 0;
+
+        Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : m_mesh_pipeline;
 
         // Synchronization
         // Wait for the fence of the frame (will sync CPU-GPU)
@@ -301,7 +318,9 @@ void Renderer::Run( ) {
         image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
         image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
         buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
-        _issue_draw_calls( swapchain_image_idx );
+        _issue_draw_calls( swapchain_image_idx, pipeline );
+        if ( m_draw_aabbs )
+            _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
 
         VkBufferCopy draws_copy = {
                 .srcOffset = 0,
@@ -326,7 +345,9 @@ void Renderer::Run( ) {
         // STEP 5 [Late Draws]
         // Render the objects that passed the late cull step
         buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
-        _issue_draw_calls( swapchain_image_idx, false, false ); // Dont clear color and depth
+        _issue_draw_calls( swapchain_image_idx, pipeline, false, false ); // Dont clear color and depth
+        if ( m_draw_aabbs )
+            _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
 
         draws_copy = {
                 .srcOffset = 0,
@@ -443,11 +464,9 @@ void Renderer::Run( ) {
     }
 }
 
-void Renderer::_issue_draw_calls( u32 swapchain_image_idx, bool b_clear_color, bool b_clear_depth ) {
+void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, bool b_clear_color, bool b_clear_depth ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
-
-    Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : m_mesh_pipeline;
 
     VkClearValue              clear_color{ 0.05f, 0.1f, 0.3f, 1.0f };
     std::array                attachments = { attachment( frame.color.view, b_clear_color ? &clear_color : nullptr ) };
@@ -824,6 +843,9 @@ void Renderer::process_events( ) {
             else if ( event.key.keysym.scancode == SDL_SCANCODE_V ) {
                 m_visualize_overdraw = !m_visualize_overdraw;
             }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_B ) {
+                m_draw_aabbs = !m_draw_aabbs;
+            }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
                 auto& draw = m_draws.at( 0 );
 
@@ -975,6 +997,9 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
             Mesh mesh{
                     .center = center,
                     .radius = radius,
+
+                    .min = glm::vec4( min, 1.0f ),
+                    .max = glm::vec4( max, 1.0f ),
 
                     .vertex_offset = vertex_offset,
             };

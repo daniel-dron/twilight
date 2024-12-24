@@ -226,7 +226,7 @@ void Pipeline::initialize( const PipelineConfig& config ) {
         VkPipelineInputAssemblyStateCreateInfo input_info = {
                 .sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
                 .pNext    = nullptr,
-                .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
+                .topology = config.topology };
 
         VkPipelineRasterizationStateCreateInfo raster_info = {
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,

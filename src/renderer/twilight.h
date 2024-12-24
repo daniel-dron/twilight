@@ -100,8 +100,13 @@ namespace tl {
         glm::vec3 center;
         f32       radius;
 
+        glm::vec4 min;
+        glm::vec4 max;
+
         u32 vertex_offset;
         u32 pad;
+        u32 pad2;
+        u32 pad3;
 
         Lod lods[6];
     };
@@ -146,7 +151,7 @@ namespace tl {
 
     private:
         void process_events( );
-        void _issue_draw_calls( u32 swapchain_image_idx, bool clear_color = true, bool clear_depth = true );
+        void _issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, bool clear_color = true, bool clear_depth = true );
         void _upload_scene_geometry( );
         void _early_cull( );
         void _late_cull( );
@@ -155,6 +160,7 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
+        bool      m_draw_aabbs            = false;
         bool      m_visualize_overdraw    = false;
         bool      m_occlusion             = true;
         bool      m_lock_occlusion        = false;
@@ -167,6 +173,7 @@ namespace tl {
         u64       m_frame_triangles       = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
+        Pipeline m_aabb_pipeline;
         Pipeline m_early_cull_pipeline;
         Pipeline m_late_cull_pipeline;
         Pipeline m_depthpyramid_pipeline;
@@ -181,7 +188,7 @@ namespace tl {
         std::vector<VkDescriptorSet> m_late_cull_set;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
-        u64                   m_draws_count          = 1'000'000;
+        u64                   m_draws_count          = 100'000;
         Buffer                m_command_buffer       = { };
         Buffer                m_draws_buffer         = { };
         std::vector<Draw>     m_draws                = { };

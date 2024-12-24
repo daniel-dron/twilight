@@ -23,9 +23,14 @@ struct Lod {
 struct Mesh {
     float3 center;
     float radius;
+
+    float4 min;
+    float4 max;
     
     uint32_t vertex_offset;
     uint32_t pad;
+    uint32_t pad2;
+    uint32_t pad3;
 
     Lod lods[6];
 }

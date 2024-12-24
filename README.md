@@ -97,6 +97,7 @@ The engine implements several optimization techniques:
 	- [ ] Fix minor popping
 	- [x] Freeze camera/depth to view occlusion results
 - [x] Dynamic Descriptor Layout (parse slang json)
+- [ ] Instancing
 - [ ] GPU Triangle culling
 - [ ] GPU Meshlet culling
 - [ ] Scene Loading
