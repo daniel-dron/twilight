@@ -114,7 +114,6 @@ namespace tl {
     struct Draw {
         glm::mat4 model;
         u64       mesh;
-        u64       pad;
     };
 
     struct SceneGeometry {
@@ -188,16 +187,13 @@ namespace tl {
         std::vector<VkDescriptorSet> m_late_cull_set;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
-        u64                   m_draws_count          = 100'000;
-        Buffer                m_command_buffer       = { };
-        Buffer                m_draws_buffer         = { };
-        std::vector<Draw>     m_draws                = { };
-        Buffer                m_command_count_buffer = { };
-        std::array<Buffer, 2> m_cull_data            = { };
-        std::array<Buffer, 3> m_visible_draws        = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
-        // 0 -> 1 frame
-        // 1 -> another frame
-        // 2 -> buffer frame used to copy between them
+        u64     m_draws_count           = 100'000;
+        FBuffer m_command_buffer        = { };
+        FBuffer m_draws_buffer          = { };
+        FBuffer m_command_count_buffer  = { };
+        FBuffer m_cull_data             = { };
+        FBuffer m_visible_draws         = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
+        Buffer  m_visible_draws_staging = { }; //  buffer frame used to copy between them
 
         f64           m_last_frame_time = 0.0;
         f64           m_delta_time      = 0.0;

@@ -120,17 +120,14 @@ void Renderer::Initialize( int count ) {
     m_linear_sampler    = create_sampler( );
     m_reduction_sampler = create_reduction_sampler( );
 
-    m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_draws_buffer         = create_buffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_visible_draws        = {
-            create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true ),
-            create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true ),
-            create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY ) };
+    m_command_buffer       = create_fbuffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_count_buffer = create_fbuffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_draws_buffer         = create_fbuffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    m_cull_data = {
-            create_buffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true ),
-            create_buffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true ) };
+    m_visible_draws         = create_fbuffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_visible_draws_staging = create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+
+    m_cull_data = create_fbuffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
 
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
@@ -151,6 +148,7 @@ void Renderer::Initialize( int count ) {
     std::random_device rd;
     std::mt19937       gen( rd( ) );
 
+    std::vector<Draw> m_draws = { };
     m_draws.reserve( m_draws_count );
 
     float base_mesh_size     = 5.0f;
@@ -202,7 +200,8 @@ void Renderer::Initialize( int count ) {
                 .srcOffset = 0,
                 .dstOffset = 0,
                 .size      = sizeof( Draw ) * m_draws.size( ) };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffer, 1, &draws_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[0].buffer, 1, &draws_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[1].buffer, 1, &draws_copy );
 
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
@@ -213,21 +212,18 @@ void Renderer::Initialize( int count ) {
 void Renderer::Shutdown( ) {
     vkDeviceWaitIdle( g_ctx.device );
 
-    destroy_buffer( m_command_buffer );
-    destroy_buffer( m_draws_buffer );
+    destroy_fbuffer( m_command_buffer );
+    destroy_fbuffer( m_draws_buffer );
+    destroy_fbuffer( m_visible_draws );
+    destroy_buffer( m_visible_draws_staging );
 
-    for ( auto& buff : m_visible_draws ) {
-        destroy_buffer( buff );
-    }
-
-    destroy_buffer( m_command_count_buffer );
+    destroy_fbuffer( m_command_count_buffer );
     destroy_buffer( m_scene_geometry.vertices_buffer );
     // destroy_buffer( m_scene_geometry.indices_buffer );
     destroy_buffer( m_scene_geometry.meshlets_buffer );
     destroy_buffer( m_scene_geometry.meshlet_data_buffer );
     destroy_buffer( m_scene_geometry.meshes_buffer );
-    destroy_buffer( m_cull_data[0] );
-    destroy_buffer( m_cull_data[1] );
+    destroy_fbuffer( m_cull_data );
 
     m_early_cull_pipeline.shutdown( );
     m_late_cull_pipeline.shutdown( );
@@ -268,7 +264,7 @@ void Renderer::Run( ) {
 
         auto& frame               = g_ctx.get_current_frame( );
         auto  cmd                 = frame.cmd;
-        auto& visible_draws       = m_visible_draws[g_ctx.get_current_frame_index( )];
+        auto& visible_draws       = m_visible_draws.get( );
         u32   swapchain_image_idx = 0;
 
         Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : m_mesh_pipeline;
@@ -288,36 +284,36 @@ void Renderer::Run( ) {
 
         // For the FIRST frame, no meshes were visible last frame, so fill the buffer with 0s
         if ( g_ctx.current_frame == 0 ) {
-            vkCmdFillBuffer( cmd, m_visible_draws[0].buffer, 0, m_visible_draws[0].size, 0 );
-            vkCmdFillBuffer( cmd, m_visible_draws[1].buffer, 0, m_visible_draws[1].size, 0 );
-            vkCmdFillBuffer( cmd, m_visible_draws[2].buffer, 0, m_visible_draws[2].size, 0 );
+            vkCmdFillBuffer( cmd, m_visible_draws.buffers[0].buffer, 0, m_visible_draws.buffers[0].size, 0 );
+            vkCmdFillBuffer( cmd, m_visible_draws.buffers[1].buffer, 0, m_visible_draws.buffers[1].size, 0 );
+            vkCmdFillBuffer( cmd, m_visible_draws_staging.buffer, 0, m_visible_draws_staging.size, 0 );
 
-            buffer_barrier( cmd, m_visible_draws[0].buffer, m_visible_draws[0].size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
-            buffer_barrier( cmd, m_visible_draws[1].buffer, m_visible_draws[1].size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
+            buffer_barrier( cmd, m_visible_draws.buffers[0].buffer, m_visible_draws.buffers[0].size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
+            buffer_barrier( cmd, m_visible_draws.buffers[1].buffer, m_visible_draws.buffers[1].size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
         }
 
         // STEP 0
         // On the beggining of the frame, copy from the staging visibility buffer (since we are using double inflight frames)
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT );
-        buffer_barrier( cmd, m_visible_draws[2].buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
+        buffer_barrier( cmd, m_visible_draws_staging.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
         const VkBufferCopy copy_from = {
                 .srcOffset = 0,
                 .dstOffset = 0,
-                .size      = m_visible_draws[2].size };
-        vkCmdCopyBuffer( cmd, m_visible_draws[2].buffer, visible_draws.buffer, 1, &copy_from );
+                .size      = m_visible_draws_staging.size };
+        vkCmdCopyBuffer( cmd, m_visible_draws_staging.buffer, visible_draws.buffer, 1, &copy_from );
 
         // STEP 1 [Early Cull].
         // Fill draw calls for objects that WERE visible last frame (visibility = 1)
         // For the first frame, that should be no meshes.
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
         _early_cull( );
 
         // STEP 2 [Early Draws]
         // Render the objects that passed the early cull step
         image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
         image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, pipeline );
         if ( m_draw_aabbs )
             _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
@@ -326,7 +322,7 @@ void Renderer::Run( ) {
                 .srcOffset = 0,
                 .dstOffset = 0,
                 .size      = sizeof( u32 ) };
-        vkCmdCopyBuffer( cmd, m_command_count_buffer.buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
+        vkCmdCopyBuffer( cmd, m_command_count_buffer.get( ).buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
 
         // STEP 3 [Depth Pyramid Construction]
         if ( !m_lock_occlusion ) {
@@ -339,12 +335,12 @@ void Renderer::Run( ) {
         // Frustum cull + Occlusion Cull
         // Fill draw calls for objects that were NOT visible last frame (visibility = 0)
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
         _late_cull( );
 
         // STEP 5 [Late Draws]
         // Render the objects that passed the late cull step
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, pipeline, false, false ); // Dont clear color and depth
         if ( m_draw_aabbs )
             _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
@@ -353,18 +349,18 @@ void Renderer::Run( ) {
                 .srcOffset = 0,
                 .dstOffset = sizeof( u32 ),
                 .size      = sizeof( u32 ) };
-        vkCmdCopyBuffer( cmd, m_command_count_buffer.buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
+        vkCmdCopyBuffer( cmd, m_command_count_buffer.get( ).buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
 
         // STEP 6
         // Copy visibility buffer from this frame to staging visibility buffer
         // On the beggining of the next frame, copy from it
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT );
-        buffer_barrier( cmd, m_visible_draws[2].buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_visible_draws_staging.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT );
         const VkBufferCopy copy_to = {
                 .srcOffset = 0,
                 .dstOffset = 0,
-                .size      = m_visible_draws[2].size };
-        vkCmdCopyBuffer( cmd, visible_draws.buffer, m_visible_draws[2].buffer, 1, &copy_to );
+                .size      = m_visible_draws_staging.size };
+        vkCmdCopyBuffer( cmd, visible_draws.buffer, m_visible_draws_staging.buffer, 1, &copy_to );
 
         // Transform overdraw accumulation into a overdraw heatmap visualization
         if ( m_visualize_overdraw ) {
@@ -505,16 +501,16 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, b
             .view                 = m_camera.get_view_matrix( ),
             .projection           = m_camera.get_projection_matrix( ),
             .camera_position      = glm::vec4( m_camera.get_position( ), 1.0f ),
-            .draws_buffer         = m_draws_buffer.device_address,
+            .draws_buffer         = m_draws_buffer.get( ).device_address,
             .meshes               = m_scene_geometry.meshes_buffer.device_address,
             .meshlets_buffer      = m_scene_geometry.meshlets_buffer.device_address,
             .meshlets_data_buffer = m_scene_geometry.meshlet_data_buffer.device_address,
             .vertex_buffer        = m_scene_geometry.vertices_buffer.device_address,
-            .draw_cmds            = m_command_buffer.device_address,
+            .draw_cmds            = m_command_buffer.get( ).device_address,
     };
 
     vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-    vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
+    vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.get( ).buffer, 0, m_command_count_buffer.get( ).buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
 
     vkCmdEndRendering( cmd );
 }
@@ -522,12 +518,12 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, b
 void Renderer::_early_cull( ) {
     auto& frame         = g_ctx.get_current_frame( );
     auto& cmd           = frame.cmd;
-    auto& visible_draws = m_visible_draws[g_ctx.get_current_frame_index( )];
+    auto& visible_draws = m_visible_draws.get( );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_FIRST_CULL_STEP_START );
 
     // Reset command count buffer to 0 (using a staging buffer)
-    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
+    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
     u32 count = 0;
     upload_buffer_data( g_ctx.staging_buffer, &count, sizeof( u32 ) );
 
@@ -535,20 +531,20 @@ void Renderer::_early_cull( ) {
             .srcOffset = 0,
             .dstOffset = 0,
             .size      = sizeof( u32 ) };
-    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
-    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
+    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.get( ).buffer, 1, &copy );
+    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
     vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_early_cull_pipeline.pipeline );
 
     CullData cull_data = {
-            .draws             = m_draws_buffer.device_address,
-            .cmds              = m_command_buffer.device_address,
+            .draws             = m_draws_buffer.get( ).device_address,
+            .cmds              = m_command_buffer.get( ).device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
             .projection_matrix = m_camera.get_projection_matrix( ),
             .view_matrix       = m_camera.get_view_matrix( ),
-            .count             = m_draws.size( ),
-            .draw_count_buffer = m_command_count_buffer.device_address,
+            .count             = m_draws_count,
+            .draw_count_buffer = m_command_count_buffer.get( ).device_address,
             .camera_position   = m_camera.get_position( ),
     };
 
@@ -568,11 +564,11 @@ void Renderer::_early_cull( ) {
         cull_data.frustum[5] = m_current_frustum.planes[5];
     }
 
-    DrawCommandComputePushConstants pc{ .cull_data = m_cull_data[g_ctx.get_current_frame_index( )].device_address };
-    upload_buffer_data( m_cull_data[g_ctx.get_current_frame_index( )], &cull_data, sizeof( CullData ) );
+    DrawCommandComputePushConstants pc{ .cull_data = m_cull_data.get( ).device_address };
+    upload_buffer_data( m_cull_data.get( ), &cull_data, sizeof( CullData ) );
 
     vkCmdPushConstants( cmd, m_early_cull_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
-    vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
+    vkCmdDispatch( cmd, u32( m_draws_count + 31 ) / 32, 1, 1 );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_FIRST_CULL_STEP_END );
 }
@@ -580,12 +576,12 @@ void Renderer::_early_cull( ) {
 void Renderer::_late_cull( ) {
     auto& frame         = g_ctx.get_current_frame( );
     auto& cmd           = frame.cmd;
-    auto& visible_draws = m_visible_draws[g_ctx.get_current_frame_index( )];
+    auto& visible_draws = m_visible_draws.get( );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_SECOND_CULL_STEP_START );
 
     // Reset command count buffer to 0 (using a staging buffer)
-    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
+    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
     u32 count = 0;
     upload_buffer_data( g_ctx.staging_buffer, &count, sizeof( u32 ) );
 
@@ -593,8 +589,8 @@ void Renderer::_late_cull( ) {
             .srcOffset = 0,
             .dstOffset = 0,
             .size      = sizeof( u32 ) };
-    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
-    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
+    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.get( ).buffer, 1, &copy );
+    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
     if ( !m_lock_occlusion ) {
         image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
@@ -614,14 +610,14 @@ void Renderer::_late_cull( ) {
 
     // update cull data
     CullData cull_data = {
-            .draws             = m_draws_buffer.device_address,
-            .cmds              = m_command_buffer.device_address,
+            .draws             = m_draws_buffer.get( ).device_address,
+            .cmds              = m_command_buffer.get( ).device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
             .projection_matrix = m_occlusion_perspective,
             .view_matrix       = m_occlusion_view,
-            .count             = m_draws.size( ),
-            .draw_count_buffer = m_command_count_buffer.device_address,
+            .count             = m_draws_count,
+            .draw_count_buffer = m_command_count_buffer.get( ).device_address,
             .camera_position   = m_camera.get_position( ),
             .occlusion_data    = { frame.depth_pyramid_size, frame.depth_pyramid_size, m_camera.get_near( ), m_occlusion },
             .occlusion_data2   = { m_camera.get_projection_matrix( )[0][0], m_camera.get_projection_matrix( )[1][1], 0.0f, 0.0f },
@@ -642,14 +638,14 @@ void Renderer::_late_cull( ) {
         cull_data.frustum[5] = m_current_frustum.planes[5];
     }
 
-    upload_buffer_data( m_cull_data[g_ctx.get_current_frame_index( )], &cull_data, sizeof( CullData ) );
+    upload_buffer_data( m_cull_data.get( ), &cull_data, sizeof( CullData ) );
     DrawCommandComputePushConstants pc{
-            .cull_data = m_cull_data[g_ctx.get_current_frame_index( )].device_address,
+            .cull_data = m_cull_data.get( ).device_address,
     };
 
     vkCmdPushConstants( cmd, m_late_cull_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
-    vkCmdDispatch( cmd, u32( m_draws.size( ) + 31 ) / 32, 1, 1 );
-    buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+    vkCmdDispatch( cmd, u32( m_draws_count + 31 ) / 32, 1, 1 );
+    buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_SECOND_CULL_STEP_END );
 }
@@ -846,32 +842,32 @@ void Renderer::process_events( ) {
             else if ( event.key.keysym.scancode == SDL_SCANCODE_B ) {
                 m_draw_aabbs = !m_draw_aabbs;
             }
-            else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
-                auto& draw = m_draws.at( 0 );
+            // else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
+            //     auto& draw = m_draws.at( 0 );
 
-                glm::mat4 model = glm::translate( glm::mat4( 1.0f ), m_camera.get_position( ) );
-                model           = glm::scale( model, glm::vec3( 2.0f ) );
-                draw.model      = model;
+            //     glm::mat4 model = glm::translate( glm::mat4( 1.0f ), m_camera.get_position( ) );
+            //     model           = glm::scale( model, glm::vec3( 2.0f ) );
+            //     draw.model      = model;
 
-                {
-                    auto& cmd = g_ctx.global_cmd;
-                    VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
-                    VKCALL( vkResetCommandBuffer( cmd, 0 ) );
-                    begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
+            //     {
+            //         auto& cmd = g_ctx.global_cmd;
+            //         VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
+            //         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
+            //         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
-                    upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( Draw ) * m_draws.size( ) );
+            //         upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( Draw ) * m_draws.size( ) );
 
-                    const VkBufferCopy draws_copy = {
-                            .srcOffset = 0,
-                            .dstOffset = 0,
-                            .size      = sizeof( Draw ) * m_draws.size( ) };
-                    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffer, 1, &draws_copy );
+            //         const VkBufferCopy draws_copy = {
+            //                 .srcOffset = 0,
+            //                 .dstOffset = 0,
+            //                 .size      = sizeof( Draw ) * m_draws.size( ) };
+            //         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffer, 1, &draws_copy );
 
-                    VKCALL( vkEndCommandBuffer( cmd ) );
-                    submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
-                    VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
-                }
-            }
+            //         VKCALL( vkEndCommandBuffer( cmd ) );
+            //         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
+            //         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
+            //     }
+            // }
         }
 
         if ( event.type == SDL_MOUSEMOTION ) {

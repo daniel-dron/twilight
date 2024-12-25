@@ -80,9 +80,17 @@ namespace tl {
         uintptr_t         gpu_data        = 0;
     };
 
-    Buffer create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
-    void   destroy_buffer( Buffer& buffer );
-    void   upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset = 0 );
+    struct FBuffer {
+        std::vector<Buffer> buffers;
+
+        Buffer& get( );
+    };
+
+    Buffer  create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
+    FBuffer create_fbuffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
+    void    destroy_buffer( Buffer& buffer );
+    void    destroy_fbuffer( FBuffer& buffer );
+    void    upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset = 0 );
 
     template<typename T>
     T read_from_buffer( Buffer buffer, u64 offset = 0 ) {

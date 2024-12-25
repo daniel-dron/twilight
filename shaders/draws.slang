@@ -1,7 +1,6 @@
 struct Draw {
     float4x4 model;
     uint64_t mesh;
-    uint64_t pad;
 }
 
 struct DrawMeshTaskCommand {

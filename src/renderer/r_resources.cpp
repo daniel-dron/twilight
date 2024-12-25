@@ -270,8 +270,8 @@ ShaderBindings tl::parse_shader_bindings( const std::string& json_content ) {
 }
 
 std::optional<ShaderBindings> tl::create_shader_descriptor_layout( const std::string& json_path ) {
-    auto json_content = read_file_to_string( json_path.c_str( ) );
-    ShaderBindings bindings = parse_shader_bindings( json_content );
+    auto           json_content = read_file_to_string( json_path.c_str( ) );
+    ShaderBindings bindings     = parse_shader_bindings( json_content );
 
     if ( bindings.descriptor_bindings.empty( ) ) {
         return std::nullopt;
@@ -431,6 +431,20 @@ Buffer tl::create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreat
     return buffer;
 }
 
+FBuffer tl::create_fbuffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
+    FBuffer fbuffer = { };
+
+    for ( u32 i = 0; i < g_ctx.frame_overlap; i++ ) {
+        fbuffer.buffers.push_back( create_buffer( size, usage, vma_flags, vma_usage, get_device_address, map_memory ) );
+    }
+
+    return fbuffer;
+}
+
+Buffer& FBuffer::get( ) {
+    return buffers.at( g_ctx.get_current_frame_index( ) );
+}
+
 void tl::destroy_buffer( Buffer& buffer ) {
     if ( buffer.gpu_data ) {
         vmaUnmapMemory( g_ctx.allocator, buffer.allocation );
@@ -440,6 +454,12 @@ void tl::destroy_buffer( Buffer& buffer ) {
 
     // reset everything
     buffer = { };
+}
+
+void tl::destroy_fbuffer( FBuffer& buffer ) {
+    for ( auto& b : buffer.buffers ) {
+        destroy_buffer( b );
+    }
 }
 
 void tl::upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset ) {
