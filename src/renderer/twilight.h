@@ -13,13 +13,12 @@
 
 #pragma once
 
-#include <optional>
 #include <renderer/r_shaders.h>
 #include <types.h>
 #include <vulkan/vulkan_core.h>
-#include "glm/ext/vector_uint2.hpp"
 #include "r_camera.h"
 #include "r_resources.h"
+#include "r_scene.h"
 
 namespace tl {
 
@@ -41,6 +40,7 @@ namespace tl {
 
     struct DrawCommandComputePushConstants {
         VkDeviceAddress cull_data;
+        f64             time;
     };
 
     struct DrawMeshTaskCommand {
@@ -68,67 +68,6 @@ namespace tl {
         glm::uvec3 mip_size;
     };
 
-    struct Vertex {
-        f32 vx, vy, vz;
-        f32 nx, ny, nz;
-    };
-
-    const size_t max_vertices  = 64;
-    const size_t max_triangles = 124;
-    struct Meshlet {
-        u64 data_offset; // SceneGeometry::meshlet_data -> [data_offset ... data_offset + vertex_count[ = vertex indices (use index + mesh.vertex_offset to index into vertices_buffer).
-                         // After that until index_count, indices
-                         //
-                         // u32 vindex = meshlet_data[data_offset + i] + mesh.vertex_offset;
-                         // Vertex v = vertices[index];
-
-        u32 vertex_count;
-        u32 triangle_count; // triangle count (to get index count do x3)
-
-        // backface culling
-        f32 cone_apex[3];
-        f32 cone_axis[3];
-        f32 cone_cutoff;
-    };
-
-    struct Lod {
-        u32 meshlet_index; // first meshlet index into SceneGeometry::meshlets;
-        u32 meshlet_count;
-    };
-
-    struct Mesh {
-        glm::vec3 center;
-        f32       radius;
-
-        glm::vec4 min;
-        glm::vec4 max;
-
-        u32 vertex_offset;
-        u32 pad;
-        u32 pad2;
-        u32 pad3;
-
-        Lod lods[6];
-    };
-
-    struct Draw {
-        glm::mat4 model;
-        u64       mesh;
-    };
-
-    struct SceneGeometry {
-        std::vector<Vertex>  vertices;
-        std::vector<u32>     indices;
-        std::vector<Meshlet> meshlets;
-        std::vector<u32>     meshlet_data; // Contains the meshlet data (vertex indices & triangles)
-        std::vector<Mesh>    meshes;
-
-        Buffer vertices_buffer;
-        // Buffer indices_buffer;
-        Buffer meshlets_buffer;
-        Buffer meshlet_data_buffer;
-        Buffer meshes_buffer;
-    };
 
     // Timestamp values
 #define GPU_TOTAL_START 0
@@ -137,6 +76,8 @@ namespace tl {
 #define GPU_TOTAL_FIRST_CULL_STEP_END GPU_TOTAL_FIRST_CULL_STEP_START + 1
 #define GPU_TOTAL_SECOND_CULL_STEP_START 4
 #define GPU_TOTAL_SECOND_CULL_STEP_END GPU_TOTAL_SECOND_CULL_STEP_START + 1
+#define GPU_TOTAL_UPDATE_SCENE_START 6
+#define GPU_TOTAL_UPDATE_SCENE_END GPU_TOTAL_UPDATE_SCENE_START + 1
 
     class Renderer {
     public:
@@ -187,19 +128,20 @@ namespace tl {
         std::vector<VkDescriptorSet> m_late_cull_set;
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
-        u64     m_draws_count           = 100'000;
-        FBuffer m_command_buffer        = { };
-        FBuffer m_draws_buffer          = { };
-        FBuffer m_command_count_buffer  = { };
-        FBuffer m_cull_data             = { };
-        FBuffer m_visible_draws         = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
-        Buffer  m_visible_draws_staging = { }; //  buffer frame used to copy between them
+        u64    m_draws_count           = 100'000;
+        Buffer m_command_buffer        = { };
+        Buffer m_command_count_buffer  = { };
+        Buffer m_cull_data             = { };
+        Buffer m_visible_draws         = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame
+        Buffer m_visible_draws_staging = { }; //  buffer frame used to copy between them
 
         f64           m_last_frame_time = 0.0;
         f64           m_delta_time      = 0.0;
         Camera        m_camera;
         float         move_speed       = 15.0f;
         SceneGeometry m_scene_geometry = { };
+
+        GPUScene m_gpu_scene = { };
     };
 
     void build_meshlets( const std::vector<Vertex>& vertices, const std::vector<u32>& indices, SceneGeometry& scene );

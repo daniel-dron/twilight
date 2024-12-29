@@ -36,7 +36,7 @@ struct Mesh {
 }
 
 struct CullData {
-    Draw* draws;
+    SubMeshRenderable* draws;
     DrawMeshTaskCommand* cmds;
     Mesh* meshes;
     uint32_t* visibility;
@@ -53,4 +53,5 @@ struct CullData {
 
 struct DrawCommandCullData {
     CullData* cull_data;
+    float64_t time;
 };

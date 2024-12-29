@@ -13,7 +13,7 @@ struct PushData {
     float4x4 view;
     float4x4 projection;
     float4 camera_position;
-    Draw* draws;
+    SubMeshRenderable* draws;
     Mesh* meshes;
     Meshlet* meshlets;
     uint32_t* meshlet_data;
@@ -31,7 +31,7 @@ void main(
    out indices uint2 primitives[12],
    out vertices VertexOutput vertices[8]
 ) {
-   Draw draw = push_data.draws[payload.draw_id];
+   SubMeshRenderable draw = push_data.draws[payload.draw_id];
    Mesh mesh = push_data.meshes[draw.mesh];
 
    SetMeshOutputCounts(8, 12);

@@ -15,7 +15,7 @@ struct PushData {
     float4x4 view;
     float4x4 projection;
     float4 camera_position;
-    Draw* draws;
+    SubMeshRenderable* draws;
     Mesh* meshes;
     Meshlet* meshlets;
     uint32_t* meshlet_data;
@@ -60,7 +60,7 @@ void main(
     uint32_t invocation_id : SV_GroupThreadID
 ) {
     uint32_t meshlet_id = payload.meshlet_indices[group_id];
-    Draw draw = push_data.draws[payload.draw_id];
+    SubMeshRenderable draw = push_data.draws[payload.draw_id];
 
     Mesh mesh = push_data.meshes[draw.mesh];
     Lod lod = mesh.lods[payload.lod_id];

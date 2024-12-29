@@ -1,6 +1,7 @@
-struct Draw {
+struct SubMeshRenderable {
     float4x4 model;
     uint64_t mesh;
+    uint8_t flags;
 }
 
 struct DrawMeshTaskCommand {

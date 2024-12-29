@@ -10,7 +10,7 @@ struct PushData {
     float4x4 view;
     float4x4 projection;
     float4 camera_position;
-    Draw* draws;
+    SubMeshRenderable* draws;
     Mesh* meshes;
     Meshlet* meshlets;
     uint32_t* meshlet_data;
@@ -48,7 +48,7 @@ void main(
     
     DrawMeshTaskCommand cmd = push_data.cmds[gl_DrawID()];
     
-    Draw draw = push_data.draws[cmd.draw_id];
+    SubMeshRenderable draw = push_data.draws[cmd.draw_id];
     payload.draw_id = cmd.draw_id;
     payload.lod_id = cmd.lod_id;
     

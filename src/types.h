@@ -33,9 +33,14 @@ constexpr glm::vec3 GLOBAL_RIGHT{ -1.0f, 0.0f, 0.0f };
 constexpr glm::vec3 GLOBAL_FRONT{ 0.0f, 0.0f, -1.0f };
 
 template<typename T>
-T* PtrTo( T&& v ) {
+T* ptr_to( T&& v ) {
     return &v;
 }
+
+template<typename T>
+struct Handle {
+    u32 handle;
+};
 
 inline f64 get_time( ) {
     static auto start_time = std::chrono::high_resolution_clock::now( );

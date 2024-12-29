@@ -16,7 +16,7 @@ void main(
     uint lod_id = 0;
 
     if ( cmd_id < push_data.cull_data.count) {
-        Draw draw = push_data.cull_data.draws[cmd_id];
+        SubMeshRenderable draw = push_data.cull_data.draws[cmd_id];
         Mesh mesh = push_data.cull_data.meshes[draw.mesh];
 
         float4 center = mul(draw.model, float4(mesh.center, 1.0f));

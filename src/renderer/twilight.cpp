@@ -27,6 +27,7 @@
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
 #include "r_resources.h"
+#include "r_scene.h"
 #include "r_shaders.h"
 #include "renderer/r_resources.h"
 #include "types.h"
@@ -61,7 +62,7 @@ void Renderer::Initialize( int count ) {
             .task                 = "../shaders/meshlet.task.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-            .depth_compare        = VK_COMPARE_OP_GREATER_OR_EQUAL,
+            .depth_compare        = VK_COMPARE_OP_GREATER,
             .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = VK_FORMAT_R32G32B32A32_SFLOAT, .blend_type = PipelineConfig::BlendType::OFF } },
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
     } );
@@ -120,14 +121,16 @@ void Renderer::Initialize( int count ) {
     m_linear_sampler    = create_sampler( );
     m_reduction_sampler = create_reduction_sampler( );
 
-    m_command_buffer       = create_fbuffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_command_count_buffer = create_fbuffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_draws_buffer         = create_fbuffer( sizeof( Draw ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    // m_draws_buffer         = create_fbuffer( sizeof( SubMeshRenderable ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    m_visible_draws         = create_fbuffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_visible_draws         = create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_visible_draws_staging = create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
 
-    m_cull_data = create_fbuffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
+    m_cull_data = create_buffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
+
+    m_gpu_scene.initialize( );
 
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
@@ -148,7 +151,7 @@ void Renderer::Initialize( int count ) {
     std::random_device rd;
     std::mt19937       gen( rd( ) );
 
-    std::vector<Draw> m_draws = { };
+    std::vector<SubMeshRenderable> m_draws = { };
     m_draws.reserve( m_draws_count );
 
     float base_mesh_size     = 5.0f;
@@ -185,45 +188,49 @@ void Renderer::Initialize( int count ) {
         model           = glm::rotate( model, rotZ, glm::vec3( 0.0f, 0.0f, 1.0f ) );
         model           = glm::scale( model, glm::vec3( scale ) );
 
-        m_draws.emplace_back( Draw{ model, mesh_id } );
+        // m_draws.emplace_back( SubMeshRenderable{ model, mesh_id } );
+        auto renderable = SubMeshRenderable{ model, mesh_id };
+        m_gpu_scene.register_renderable( &renderable );
     }
 
-    {
-        auto& cmd = g_ctx.global_cmd;
-        VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
-        VKCALL( vkResetCommandBuffer( cmd, 0 ) );
-        begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
+    // {
+    //     auto& cmd = g_ctx.global_cmd;
+    //     VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
+    //     VKCALL( vkResetCommandBuffer( cmd, 0 ) );
+    //     begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
 
-        upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( Draw ) * m_draws.size( ) );
+    //     upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( SubMeshRenderable ) * m_draws.size( ) );
 
-        const VkBufferCopy draws_copy = {
-                .srcOffset = 0,
-                .dstOffset = 0,
-                .size      = sizeof( Draw ) * m_draws.size( ) };
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[0].buffer, 1, &draws_copy );
-        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[1].buffer, 1, &draws_copy );
+    //     const VkBufferCopy draws_copy = {
+    //             .srcOffset = 0,
+    //             .dstOffset = 0,
+    //             .size      = sizeof( SubMeshRenderable ) * m_draws.size( ) };
+    //     vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[0].buffer, 1, &draws_copy );
+    //     vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[1].buffer, 1, &draws_copy );
 
-        VKCALL( vkEndCommandBuffer( cmd ) );
-        submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
-        VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
-    }
+    //     VKCALL( vkEndCommandBuffer( cmd ) );
+    //     submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
+    //     VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
+    // }
 }
 
 void Renderer::Shutdown( ) {
     vkDeviceWaitIdle( g_ctx.device );
 
-    destroy_fbuffer( m_command_buffer );
-    destroy_fbuffer( m_draws_buffer );
-    destroy_fbuffer( m_visible_draws );
+    m_gpu_scene.shutdown( );
+
+    destroy_buffer( m_command_buffer );
+    // destroy_fbuffer( m_draws_buffer );
+    destroy_buffer( m_visible_draws );
     destroy_buffer( m_visible_draws_staging );
 
-    destroy_fbuffer( m_command_count_buffer );
+    destroy_buffer( m_command_count_buffer );
     destroy_buffer( m_scene_geometry.vertices_buffer );
     // destroy_buffer( m_scene_geometry.indices_buffer );
     destroy_buffer( m_scene_geometry.meshlets_buffer );
     destroy_buffer( m_scene_geometry.meshlet_data_buffer );
     destroy_buffer( m_scene_geometry.meshes_buffer );
-    destroy_fbuffer( m_cull_data );
+    destroy_buffer( m_cull_data );
 
     m_early_cull_pipeline.shutdown( );
     m_late_cull_pipeline.shutdown( );
@@ -246,10 +253,11 @@ void Renderer::Shutdown( ) {
 }
 
 void Renderer::Run( ) {
-    f64 avg_cpu_time       = 0;
-    f64 avg_gpu_time       = 0;
-    f64 avg_cull_time      = 0;
-    f64 avg_late_cull_time = 0;
+    f64 avg_cpu_time          = 0;
+    f64 avg_gpu_time          = 0;
+    f64 avg_cull_time         = 0;
+    f64 avg_late_cull_time    = 0;
+    f64 avg_update_scene_time = 0;
 
     m_last_frame_time = get_time( );
 
@@ -264,7 +272,7 @@ void Renderer::Run( ) {
 
         auto& frame               = g_ctx.get_current_frame( );
         auto  cmd                 = frame.cmd;
-        auto& visible_draws       = m_visible_draws.get( );
+        auto& visible_draws       = m_visible_draws;
         u32   swapchain_image_idx = 0;
 
         Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : m_mesh_pipeline;
@@ -282,14 +290,23 @@ void Renderer::Run( ) {
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
         vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_START );
 
+        // As a benchmark, updating 10k renderables. This is more taxing on the cpu than the entire bandwidth + compute costs
+        glm::mat4 model = glm::translate( glm::mat4( 1.0f ), m_camera.get_position( ) + glm::vec3( 0.0f, -1.0f, 0.0f ) );
+        model           = glm::scale( model, glm::vec3( 0.1f ) );
+        for ( u32 i = 0; i < 100; i++ ) {
+            m_gpu_scene.update_transform( { i }, model );
+        }
+
+        vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_UPDATE_SCENE_START );
+        m_gpu_scene.sync( );
+        vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_UPDATE_SCENE_END );
+
         // For the FIRST frame, no meshes were visible last frame, so fill the buffer with 0s
         if ( g_ctx.current_frame == 0 ) {
-            vkCmdFillBuffer( cmd, m_visible_draws.buffers[0].buffer, 0, m_visible_draws.buffers[0].size, 0 );
-            vkCmdFillBuffer( cmd, m_visible_draws.buffers[1].buffer, 0, m_visible_draws.buffers[1].size, 0 );
+            vkCmdFillBuffer( cmd, m_visible_draws.buffer, 0, m_visible_draws.size, 0 );
             vkCmdFillBuffer( cmd, m_visible_draws_staging.buffer, 0, m_visible_draws_staging.size, 0 );
 
-            buffer_barrier( cmd, m_visible_draws.buffers[0].buffer, m_visible_draws.buffers[0].size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
-            buffer_barrier( cmd, m_visible_draws.buffers[1].buffer, m_visible_draws.buffers[1].size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
+            buffer_barrier( cmd, m_visible_draws.buffer, m_visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
         }
 
         // STEP 0
@@ -306,14 +323,14 @@ void Renderer::Run( ) {
         // Fill draw calls for objects that WERE visible last frame (visibility = 1)
         // For the first frame, that should be no meshes.
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
-        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
         _early_cull( );
 
         // STEP 2 [Early Draws]
         // Render the objects that passed the early cull step
         image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
         image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
-        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, pipeline );
         if ( m_draw_aabbs )
             _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
@@ -322,7 +339,7 @@ void Renderer::Run( ) {
                 .srcOffset = 0,
                 .dstOffset = 0,
                 .size      = sizeof( u32 ) };
-        vkCmdCopyBuffer( cmd, m_command_count_buffer.get( ).buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
+        vkCmdCopyBuffer( cmd, m_command_count_buffer.buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
 
         // STEP 3 [Depth Pyramid Construction]
         if ( !m_lock_occlusion ) {
@@ -335,12 +352,12 @@ void Renderer::Run( ) {
         // Frustum cull + Occlusion Cull
         // Fill draw calls for objects that were NOT visible last frame (visibility = 0)
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
-        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
         _late_cull( );
 
         // STEP 5 [Late Draws]
         // Render the objects that passed the late cull step
-        buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, pipeline, false, false ); // Dont clear color and depth
         if ( m_draw_aabbs )
             _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
@@ -349,7 +366,7 @@ void Renderer::Run( ) {
                 .srcOffset = 0,
                 .dstOffset = sizeof( u32 ),
                 .size      = sizeof( u32 ) };
-        vkCmdCopyBuffer( cmd, m_command_count_buffer.get( ).buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
+        vkCmdCopyBuffer( cmd, m_command_count_buffer.buffer, g_ctx.readback_buffer.buffer, 1, &draws_copy );
 
         // STEP 6
         // Copy visibility buffer from this frame to staging visibility buffer
@@ -440,22 +457,23 @@ void Renderer::Run( ) {
         VKCALL( vkQueuePresentKHR( g_ctx.graphics_queue, &present_info ) );
 
         // Timers
-        vkGetQueryPoolResults( g_ctx.device, frame.query_pool_timestamps, 0, 6, frame.gpu_timestamps.size( ) * sizeof( u64 ), frame.gpu_timestamps.data( ), sizeof( u64 ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
+        vkGetQueryPoolResults( g_ctx.device, frame.query_pool_timestamps, 0, 8, frame.gpu_timestamps.size( ) * sizeof( u64 ), frame.gpu_timestamps.data( ), sizeof( u64 ), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT );
 
         auto after_culling_count = read_from_buffer<u32>( g_ctx.readback_buffer ) + read_from_buffer<u32>( g_ctx.readback_buffer, sizeof( u32 ) );
 
         g_ctx.current_frame++;
         auto cpu_time_end = get_time( );
 
-        avg_cpu_time       = avg_cpu_time * 0.95 + ( ( cpu_time_end - cpu_time_start ) * 1000.0f ) * 0.05;
-        avg_gpu_time       = avg_gpu_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_START], frame.gpu_timestamps[GPU_TOTAL_END] ) ) * 0.05f;
-        avg_cull_time      = avg_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_FIRST_CULL_STEP_START], frame.gpu_timestamps[GPU_TOTAL_FIRST_CULL_STEP_END] ) ) * 0.05f;
-        avg_late_cull_time = avg_late_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_SECOND_CULL_STEP_START], frame.gpu_timestamps[GPU_TOTAL_SECOND_CULL_STEP_END] ) ) * 0.05f;
+        avg_cpu_time          = avg_cpu_time * 0.95 + ( ( cpu_time_end - cpu_time_start ) * 1000.0f ) * 0.05;
+        avg_gpu_time          = avg_gpu_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_START], frame.gpu_timestamps[GPU_TOTAL_END] ) ) * 0.05f;
+        avg_cull_time         = avg_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_FIRST_CULL_STEP_START], frame.gpu_timestamps[GPU_TOTAL_FIRST_CULL_STEP_END] ) ) * 0.05f;
+        avg_late_cull_time    = avg_late_cull_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_SECOND_CULL_STEP_START], frame.gpu_timestamps[GPU_TOTAL_SECOND_CULL_STEP_END] ) ) * 0.05f;
+        avg_update_scene_time = avg_update_scene_time * 0.95 + ( g_ctx.get_query_time_in_ms( frame.gpu_timestamps[GPU_TOTAL_UPDATE_SCENE_START], frame.gpu_timestamps[GPU_TOTAL_UPDATE_SCENE_END] ) ) * 0.05f;
 
         f64   triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
         auto& front             = m_camera.get_front( );
-        auto  title             = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; draws: {} {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
-                                               avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, m_draws_count, after_culling_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", ( m_lock_occlusion ) ? " (FROZEN)" : "" );
+        auto  title             = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; update: {:.3f}; draws: {} {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
+                                               avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, avg_update_scene_time, m_draws_count, after_culling_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", ( m_lock_occlusion ) ? " (FROZEN)" : "" );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
 }
@@ -501,16 +519,16 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, b
             .view                 = m_camera.get_view_matrix( ),
             .projection           = m_camera.get_projection_matrix( ),
             .camera_position      = glm::vec4( m_camera.get_position( ), 1.0f ),
-            .draws_buffer         = m_draws_buffer.get( ).device_address,
+            .draws_buffer         = m_gpu_scene.get_renderables_address( ),
             .meshes               = m_scene_geometry.meshes_buffer.device_address,
             .meshlets_buffer      = m_scene_geometry.meshlets_buffer.device_address,
             .meshlets_data_buffer = m_scene_geometry.meshlet_data_buffer.device_address,
             .vertex_buffer        = m_scene_geometry.vertices_buffer.device_address,
-            .draw_cmds            = m_command_buffer.get( ).device_address,
+            .draw_cmds            = m_command_buffer.device_address,
     };
 
     vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-    vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.get( ).buffer, 0, m_command_count_buffer.get( ).buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
+    vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
 
     vkCmdEndRendering( cmd );
 }
@@ -518,12 +536,12 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, b
 void Renderer::_early_cull( ) {
     auto& frame         = g_ctx.get_current_frame( );
     auto& cmd           = frame.cmd;
-    auto& visible_draws = m_visible_draws.get( );
+    auto& visible_draws = m_visible_draws;
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_FIRST_CULL_STEP_START );
 
     // Reset command count buffer to 0 (using a staging buffer)
-    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
+    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
     u32 count = 0;
     upload_buffer_data( g_ctx.staging_buffer, &count, sizeof( u32 ) );
 
@@ -531,20 +549,20 @@ void Renderer::_early_cull( ) {
             .srcOffset = 0,
             .dstOffset = 0,
             .size      = sizeof( u32 ) };
-    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.get( ).buffer, 1, &copy );
-    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
+    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
+    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
     vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_early_cull_pipeline.pipeline );
 
     CullData cull_data = {
-            .draws             = m_draws_buffer.get( ).device_address,
-            .cmds              = m_command_buffer.get( ).device_address,
+            .draws             = m_gpu_scene.get_renderables_address( ),
+            .cmds              = m_command_buffer.device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
             .projection_matrix = m_camera.get_projection_matrix( ),
             .view_matrix       = m_camera.get_view_matrix( ),
             .count             = m_draws_count,
-            .draw_count_buffer = m_command_count_buffer.get( ).device_address,
+            .draw_count_buffer = m_command_count_buffer.device_address,
             .camera_position   = m_camera.get_position( ),
     };
 
@@ -564,8 +582,8 @@ void Renderer::_early_cull( ) {
         cull_data.frustum[5] = m_current_frustum.planes[5];
     }
 
-    DrawCommandComputePushConstants pc{ .cull_data = m_cull_data.get( ).device_address };
-    upload_buffer_data( m_cull_data.get( ), &cull_data, sizeof( CullData ) );
+    DrawCommandComputePushConstants pc{ .cull_data = m_cull_data.device_address, .time = m_delta_time };
+    upload_buffer_data( m_cull_data, &cull_data, sizeof( CullData ) );
 
     vkCmdPushConstants( cmd, m_early_cull_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
     vkCmdDispatch( cmd, u32( m_draws_count + 31 ) / 32, 1, 1 );
@@ -576,12 +594,12 @@ void Renderer::_early_cull( ) {
 void Renderer::_late_cull( ) {
     auto& frame         = g_ctx.get_current_frame( );
     auto& cmd           = frame.cmd;
-    auto& visible_draws = m_visible_draws.get( );
+    auto& visible_draws = m_visible_draws;
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_SECOND_CULL_STEP_START );
 
     // Reset command count buffer to 0 (using a staging buffer)
-    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
+    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT );
     u32 count = 0;
     upload_buffer_data( g_ctx.staging_buffer, &count, sizeof( u32 ) );
 
@@ -589,8 +607,8 @@ void Renderer::_late_cull( ) {
             .srcOffset = 0,
             .dstOffset = 0,
             .size      = sizeof( u32 ) };
-    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.get( ).buffer, 1, &copy );
-    buffer_barrier( cmd, m_command_count_buffer.get( ).buffer, m_command_count_buffer.get( ).size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
+    vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_command_count_buffer.buffer, 1, &copy );
+    buffer_barrier( cmd, m_command_count_buffer.buffer, m_command_count_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT );
 
     if ( !m_lock_occlusion ) {
         image_barrier( cmd, frame.depth_pyramid.image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS );
@@ -610,14 +628,14 @@ void Renderer::_late_cull( ) {
 
     // update cull data
     CullData cull_data = {
-            .draws             = m_draws_buffer.get( ).device_address,
-            .cmds              = m_command_buffer.get( ).device_address,
+            .draws             = m_gpu_scene.get_renderables_address( ),
+            .cmds              = m_command_buffer.device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
             .projection_matrix = m_occlusion_perspective,
             .view_matrix       = m_occlusion_view,
             .count             = m_draws_count,
-            .draw_count_buffer = m_command_count_buffer.get( ).device_address,
+            .draw_count_buffer = m_command_count_buffer.device_address,
             .camera_position   = m_camera.get_position( ),
             .occlusion_data    = { frame.depth_pyramid_size, frame.depth_pyramid_size, m_camera.get_near( ), m_occlusion },
             .occlusion_data2   = { m_camera.get_projection_matrix( )[0][0], m_camera.get_projection_matrix( )[1][1], 0.0f, 0.0f },
@@ -638,14 +656,14 @@ void Renderer::_late_cull( ) {
         cull_data.frustum[5] = m_current_frustum.planes[5];
     }
 
-    upload_buffer_data( m_cull_data.get( ), &cull_data, sizeof( CullData ) );
+    upload_buffer_data( m_cull_data, &cull_data, sizeof( CullData ) );
     DrawCommandComputePushConstants pc{
-            .cull_data = m_cull_data.get( ).device_address,
-    };
+            .cull_data = m_cull_data.device_address,
+            .time      = m_delta_time };
 
     vkCmdPushConstants( cmd, m_late_cull_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
     vkCmdDispatch( cmd, u32( m_draws_count + 31 ) / 32, 1, 1 );
-    buffer_barrier( cmd, m_command_buffer.get( ).buffer, m_command_buffer.get( ).size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+    buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_SECOND_CULL_STEP_END );
 }
@@ -750,7 +768,7 @@ void Renderer::_upload_scene_geometry( ) {
     u64 meshlet_data_size                = m_scene_geometry.meshlet_data.size( ) * sizeof( u32 );
     m_scene_geometry.meshlet_data_buffer = create_buffer( meshlet_data_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    u64 meshes_size                = m_scene_geometry.meshes.size( ) * sizeof( Mesh );
+    u64 meshes_size                = m_scene_geometry.meshes.size( ) * sizeof( SubMesh );
     m_scene_geometry.meshes_buffer = create_buffer( meshes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     // upload to staging buffer first
@@ -842,32 +860,6 @@ void Renderer::process_events( ) {
             else if ( event.key.keysym.scancode == SDL_SCANCODE_B ) {
                 m_draw_aabbs = !m_draw_aabbs;
             }
-            // else if ( event.key.keysym.scancode == SDL_SCANCODE_SPACE ) {
-            //     auto& draw = m_draws.at( 0 );
-
-            //     glm::mat4 model = glm::translate( glm::mat4( 1.0f ), m_camera.get_position( ) );
-            //     model           = glm::scale( model, glm::vec3( 2.0f ) );
-            //     draw.model      = model;
-
-            //     {
-            //         auto& cmd = g_ctx.global_cmd;
-            //         VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
-            //         VKCALL( vkResetCommandBuffer( cmd, 0 ) );
-            //         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
-
-            //         upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( Draw ) * m_draws.size( ) );
-
-            //         const VkBufferCopy draws_copy = {
-            //                 .srcOffset = 0,
-            //                 .dstOffset = 0,
-            //                 .size      = sizeof( Draw ) * m_draws.size( ) };
-            //         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffer, 1, &draws_copy );
-
-            //         VKCALL( vkEndCommandBuffer( cmd ) );
-            //         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
-            //         VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
-            //     }
-            // }
         }
 
         if ( event.type == SDL_MOUSEMOTION ) {
@@ -990,7 +982,7 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
             f32       radius = glm::length( max - center );
 
             // Place mesh into scene
-            Mesh mesh{
+            SubMesh mesh{
                     .center = center,
                     .radius = radius,
 

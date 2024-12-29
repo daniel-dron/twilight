@@ -18,7 +18,7 @@ void main(
             return;
         }
 
-        Draw draw = push_data.cull_data.draws[cmd_id];
+        SubMeshRenderable draw = push_data.cull_data.draws[cmd_id];
         Mesh mesh = push_data.cull_data.meshes[draw.mesh];
 
         float3 center = mul(draw.model, float4(mesh.center, 1.0f)).xyz;

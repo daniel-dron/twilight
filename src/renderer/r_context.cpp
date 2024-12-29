@@ -162,6 +162,7 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
     VkPhysicalDeviceVulkan12Features features_12{
             .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
             .storageBuffer8BitAccess = true,
+            .shaderInt8              = true,
             .runtimeDescriptorArray  = true,
             .samplerFilterMinmax     = true,
             .hostQueryReset          = true,
