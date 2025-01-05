@@ -24,9 +24,11 @@ namespace tl {
 
     struct CullData {
         VkDeviceAddress draws;
-        VkDeviceAddress cmds;
+        VkDeviceAddress tasks;    // Buffer of tasks for mesh pipeline (task/amplification stage)
+        VkDeviceAddress commands; // Buffer of indirect draw arguments for vertex pipeline
         VkDeviceAddress meshes;
         VkDeviceAddress visibility;
+        u64             pad;
         glm::mat4       projection_matrix;
         glm::mat4       view_matrix;
         u64             count;
@@ -41,6 +43,7 @@ namespace tl {
     struct DrawCommandComputePushConstants {
         VkDeviceAddress cull_data;
         f64             time;
+        uint32_t        use_task;       // Wether to write to tasks or commands buffer in CullData
     };
 
     struct DrawMeshTaskCommand {
@@ -52,6 +55,20 @@ namespace tl {
         u32 pad;
     };
 
+    struct DrawIndexedIndirectCommand {
+        uint32_t indexCount;
+        uint32_t instanceCount;
+        uint32_t firstIndex;
+        int32_t  vertexOffset;
+        uint32_t firstInstance;
+
+        uint32_t draw_id;
+        uint32_t lod_id;
+        float    pad;
+        float    pad1;
+        float    pad2;
+    };
+
     struct ScenePushConstants {
         glm::mat4 view;
         glm::mat4 projection;
@@ -61,7 +78,8 @@ namespace tl {
         u64       meshlets_buffer;
         u64       meshlets_data_buffer;
         u64       vertex_buffer;
-        u64       draw_cmds;
+        u64       tasks_buffer;
+        u64       commands_buffer;
     };
 
     struct DepthPyramidPushConstants {
@@ -100,6 +118,7 @@ namespace tl {
         SDL_Window* m_window = { };
         bool        m_quit   = false;
 
+        bool      m_use_mesh_shaders      = false;
         bool      m_draw_aabbs            = false;
         bool      m_visualize_overdraw    = false;
         bool      m_occlusion             = true;
@@ -113,6 +132,7 @@ namespace tl {
         u64       m_frame_triangles       = 0; // how many triangles were drawn this frame
 
         Pipeline m_mesh_pipeline;
+        Pipeline m_vertex_pipeline;
         Pipeline m_aabb_pipeline;
         Pipeline m_early_cull_pipeline;
         Pipeline m_late_cull_pipeline;
@@ -129,7 +149,8 @@ namespace tl {
         std::vector<VkDescriptorSet> m_depthpyramid_sets;
 
         u64    m_draws_count           = 100'000;
-        Buffer m_command_buffer        = { };
+        Buffer m_task_command_buffer   = { };
+        Buffer m_draw_command_buffer   = { };
         Buffer m_command_count_buffer  = { };
         Buffer m_cull_data             = { };
         Buffer m_visible_draws         = { }; // NOTE: 1 = visible last frame | 0 = NOT visible last frame

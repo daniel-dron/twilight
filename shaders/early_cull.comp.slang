@@ -43,11 +43,21 @@ void main(
 
             Lod lod = mesh.lods[lod_id];
 
-            push_data.cull_data.cmds[id].groupCountX = ( lod.meshlet_count + 31 ) / 32;
-            push_data.cull_data.cmds[id].groupCountY = 1;
-            push_data.cull_data.cmds[id].groupCountZ = 1;
-            push_data.cull_data.cmds[id].draw_id = cmd_id;
-            push_data.cull_data.cmds[id].lod_id = lod_id;
+            if (push_data.use_task == true) {
+                push_data.cull_data.tasks[id].groupCountX = ( lod.meshlet_count + 31 ) / 32;
+                push_data.cull_data.tasks[id].groupCountY = 1;
+                push_data.cull_data.tasks[id].groupCountZ = 1;
+                push_data.cull_data.tasks[id].draw_id = cmd_id;
+                push_data.cull_data.tasks[id].lod_id = lod_id;
+            } else {
+                push_data.cull_data.commands[id].draw_id = cmd_id;
+                push_data.cull_data.commands[id].lod_id = lod_id;
+                push_data.cull_data.commands[id].indexCount = lod.index_count;
+                push_data.cull_data.commands[id].instanceCount = 1;
+                push_data.cull_data.commands[id].firstIndex = lod.index_offset;
+                push_data.cull_data.commands[id].vertexOffset = mesh.vertex_offset;
+                push_data.cull_data.commands[id].firstInstance = 0;
+            }
         }
     }
 }

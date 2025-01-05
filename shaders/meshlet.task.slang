@@ -15,8 +15,10 @@ struct PushData {
     Meshlet* meshlets;
     uint32_t* meshlet_data;
     Vertex* vertex_buffer;
-    DrawMeshTaskCommand* cmds;
+    DrawMeshTaskCommand* tasks;         // Buffer containing task commands for multi-draw indirect mesh pipeline.
+    VkDrawIndexedIndirectCommand* cmds; // Buffer containing indexed draw commands for the multi-draw indirect vertex pipeline.
 }
+
 [[vk_push_constant]]
 PushData push_data;
 
@@ -46,7 +48,7 @@ void main(
 ) {
     uint32_t meshlet_id = group_id.x * 32 + invocation_id.x;
     
-    DrawMeshTaskCommand cmd = push_data.cmds[gl_DrawID()];
+    DrawMeshTaskCommand cmd = push_data.tasks[gl_DrawID()];
     
     SubMeshRenderable draw = push_data.draws[cmd.draw_id];
     payload.draw_id = cmd.draw_id;

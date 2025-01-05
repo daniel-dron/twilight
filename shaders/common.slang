@@ -16,8 +16,13 @@ struct Meshlet {
 }
 
 struct Lod {
+    // Used during mesh pipeline (mesh shaders)
     uint32_t meshlet_index;
     uint32_t meshlet_count;
+
+    // Used during vertex pipeline
+    uint32_t index_count;
+    uint32_t index_offset;
 }
 
 struct Mesh {
@@ -37,9 +42,11 @@ struct Mesh {
 
 struct CullData {
     SubMeshRenderable* draws;
-    DrawMeshTaskCommand* cmds;
+    DrawMeshTaskCommand* tasks;             // Buffer containing task commands for multi-draw indirect mesh pipeline.
+    VkDrawIndexedIndirectCommand* commands; // Buffer containing indexed draw commands for the multi-draw indirect vertex pipeline.
     Mesh* meshes;
     uint32_t* visibility;
+    uint64_t pad;
     float4x4 projection_matrix;
     float4x4 view_matrix;
     uint64_t count;
@@ -54,4 +61,5 @@ struct CullData {
 struct DrawCommandCullData {
     CullData* cull_data;
     float64_t time;
+    uint32_t use_task;
 };

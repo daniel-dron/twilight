@@ -46,8 +46,13 @@ namespace tl {
     };
 
     struct Lod {
+        // Used during mesh pipeline (mesh shaders)
         u32 meshlet_index; // first meshlet index into SceneGeometry::meshlets;
         u32 meshlet_count;
+
+        // Used during vertex pipeline
+        u32 index_count;
+        u32 index_offset;
     };
 
     struct SubMesh {
@@ -90,7 +95,7 @@ namespace tl {
         std::vector<SubMesh> meshes;
 
         Buffer vertices_buffer;
-        // Buffer indices_buffer;
+        Buffer indices_buffer;
         Buffer meshlets_buffer;
         Buffer meshlet_data_buffer;
         Buffer meshes_buffer;

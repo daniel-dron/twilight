@@ -57,9 +57,20 @@ void Renderer::Initialize( int count ) {
 
     m_mesh_pipeline.initialize( PipelineConfig{
             .name                 = "mesh",
-            .pixel                = "../shaders/meshlet.frag.slang.spv",
             .mesh                 = "../shaders/meshlet.mesh.slang.spv",
             .task                 = "../shaders/meshlet.task.slang.spv",
+            .pixel                = "../shaders/meshlet.frag.slang.spv",
+            .cull_mode            = VK_CULL_MODE_BACK_BIT,
+            .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .depth_compare        = VK_COMPARE_OP_GREATER,
+            .color_targets        = { PipelineConfig::ColorTargetsConfig{ .format = VK_FORMAT_R32G32B32A32_SFLOAT, .blend_type = PipelineConfig::BlendType::OFF } },
+            .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, .size = sizeof( ScenePushConstants ) } },
+    } );
+
+    m_vertex_pipeline.initialize( PipelineConfig{
+            .name                 = "vertex",
+            .vertex               = "../shaders/mesh.vert.slang.spv",
+            .pixel                = "../shaders/meshlet.frag.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .depth_compare        = VK_COMPARE_OP_GREATER,
@@ -69,9 +80,9 @@ void Renderer::Initialize( int count ) {
 
     m_aabb_pipeline.initialize( PipelineConfig{
             .name                 = "aabb",
-            .pixel                = "../shaders/meshlet.frag.slang.spv",
             .mesh                 = "../shaders/aabb.mesh.slang.spv",
             .task                 = "../shaders/aabb.task.slang.spv",
+            .pixel                = "../shaders/meshlet.frag.slang.spv",
             .polygon_mode         = VK_POLYGON_MODE_LINE,
             .topology             = VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
             .cull_mode            = VK_CULL_MODE_NONE,
@@ -102,9 +113,9 @@ void Renderer::Initialize( int count ) {
 
     m_overdraw_accumulation_pipeline.initialize( PipelineConfig{
             .name                 = "overdraw accumulation",
-            .pixel                = "../shaders/overdraw_acc.frag.slang.spv",
             .mesh                 = "../shaders/meshlet.mesh.slang.spv",
             .task                 = "../shaders/meshlet.task.slang.spv",
+            .pixel                = "../shaders/overdraw_acc.frag.slang.spv",
             .cull_mode            = VK_CULL_MODE_BACK_BIT,
             .front_face           = VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .depth_compare        = VK_COMPARE_OP_GREATER_OR_EQUAL,
@@ -121,7 +132,8 @@ void Renderer::Initialize( int count ) {
     m_linear_sampler    = create_sampler( );
     m_reduction_sampler = create_reduction_sampler( );
 
-    m_command_buffer       = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_task_command_buffer  = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_draw_command_buffer  = create_buffer( sizeof( DrawIndexedIndirectCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     // m_draws_buffer         = create_fbuffer( sizeof( SubMeshRenderable ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
@@ -135,21 +147,14 @@ void Renderer::Initialize( int count ) {
     // load_mesh_from_file( "../../assets/lucy/lucy.gltf", "Lucy_3M_O10", m_scene_geometry );
     load_mesh_from_file( "../../assets/teapot/teapot.gltf", "Teapot", m_scene_geometry );
     // load_mesh_from_file( "../../assets/guanyin/scene.gltf", "Object_0", m_scene_geometry );
-    // load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
+    load_mesh_from_file( "../../assets/cube/cube.gltf", "Cube.001", m_scene_geometry );
 
     // Upload scene geometry to the gpu
     _upload_scene_geometry( );
 
-    // float     scale = 5.0f;
-    // glm::mat4 model = glm::translate( glm::mat4( 1.0f ), glm::vec3( 15.0f, 0.0f, 0.0f ) );
-    // model           = glm::scale( model, glm::vec3( scale ) );
-    // m_draws.emplace_back( Draw{ model, 0 } );
-
-    // model = glm::translate( glm::mat4( 1.0f ), glm::vec3( 25.0f, 0.0f, 0.0f ) );
-    // m_draws.emplace_back( Draw{ model, 0 } );
-
-    std::random_device rd;
-    std::mt19937       gen( rd( ) );
+    // Hardcoded seed for consistent comparisons between reboots
+    u32          seed = 2025;
+    std::mt19937 gen( seed );
 
     std::vector<SubMeshRenderable> m_draws = { };
     m_draws.reserve( m_draws_count );
@@ -192,26 +197,6 @@ void Renderer::Initialize( int count ) {
         auto renderable = SubMeshRenderable{ model, mesh_id };
         m_gpu_scene.register_renderable( &renderable );
     }
-
-    // {
-    //     auto& cmd = g_ctx.global_cmd;
-    //     VKCALL( vkResetFences( g_ctx.device, 1, &g_ctx.global_fence ) );
-    //     VKCALL( vkResetCommandBuffer( cmd, 0 ) );
-    //     begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
-
-    //     upload_buffer_data( g_ctx.staging_buffer, m_draws.data( ), sizeof( SubMeshRenderable ) * m_draws.size( ) );
-
-    //     const VkBufferCopy draws_copy = {
-    //             .srcOffset = 0,
-    //             .dstOffset = 0,
-    //             .size      = sizeof( SubMeshRenderable ) * m_draws.size( ) };
-    //     vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[0].buffer, 1, &draws_copy );
-    //     vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_draws_buffer.buffers[1].buffer, 1, &draws_copy );
-
-    //     VKCALL( vkEndCommandBuffer( cmd ) );
-    //     submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
-    //     VKCALL( vkWaitForFences( g_ctx.device, 1, &g_ctx.global_fence, true, UINT64_MAX ) );
-    // }
 }
 
 void Renderer::Shutdown( ) {
@@ -219,14 +204,15 @@ void Renderer::Shutdown( ) {
 
     m_gpu_scene.shutdown( );
 
-    destroy_buffer( m_command_buffer );
+    destroy_buffer( m_task_command_buffer );
+    destroy_buffer( m_draw_command_buffer );
     // destroy_fbuffer( m_draws_buffer );
     destroy_buffer( m_visible_draws );
     destroy_buffer( m_visible_draws_staging );
 
     destroy_buffer( m_command_count_buffer );
     destroy_buffer( m_scene_geometry.vertices_buffer );
-    // destroy_buffer( m_scene_geometry.indices_buffer );
+    destroy_buffer( m_scene_geometry.indices_buffer );
     destroy_buffer( m_scene_geometry.meshlets_buffer );
     destroy_buffer( m_scene_geometry.meshlet_data_buffer );
     destroy_buffer( m_scene_geometry.meshes_buffer );
@@ -235,6 +221,7 @@ void Renderer::Shutdown( ) {
     m_early_cull_pipeline.shutdown( );
     m_late_cull_pipeline.shutdown( );
     m_mesh_pipeline.shutdown( );
+    m_vertex_pipeline.shutdown( );
     m_aabb_pipeline.shutdown( );
     m_depthpyramid_pipeline.shutdown( );
 
@@ -275,7 +262,9 @@ void Renderer::Run( ) {
         auto& visible_draws       = m_visible_draws;
         u32   swapchain_image_idx = 0;
 
-        Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : m_mesh_pipeline;
+        // Choose what pipeline is going to be used when issuing draw calls
+        // It's either overdraw accumulation pipeline or vertex/mesh pipeline
+        Pipeline& pipeline = m_visualize_overdraw ? m_overdraw_accumulation_pipeline : ( m_use_mesh_shaders ? m_mesh_pipeline : m_vertex_pipeline );
 
         // Synchronization
         // Wait for the fence of the frame (will sync CPU-GPU)
@@ -323,14 +312,17 @@ void Renderer::Run( ) {
         // Fill draw calls for objects that WERE visible last frame (visibility = 1)
         // For the first frame, that should be no meshes.
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT );
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_task_command_buffer.buffer, m_task_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_draw_command_buffer.buffer, m_draw_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+
         _early_cull( );
 
         // STEP 2 [Early Draws]
         // Render the objects that passed the early cull step
         image_barrier( cmd, frame.depth.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT );
         image_barrier( cmd, frame.color.image, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL );
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_task_command_buffer.buffer, m_task_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_draw_command_buffer.buffer, m_draw_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, pipeline );
         if ( m_draw_aabbs )
             _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
@@ -352,12 +344,14 @@ void Renderer::Run( ) {
         // Frustum cull + Occlusion Cull
         // Fill draw calls for objects that were NOT visible last frame (visibility = 0)
         buffer_barrier( cmd, visible_draws.buffer, visible_draws.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_task_command_buffer.buffer, m_task_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
+        buffer_barrier( cmd, m_draw_command_buffer.buffer, m_draw_command_buffer.size, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT );
         _late_cull( );
 
         // STEP 5 [Late Draws]
         // Render the objects that passed the late cull step
-        buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_task_command_buffer.buffer, m_task_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+        buffer_barrier( cmd, m_draw_command_buffer.buffer, m_draw_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
         _issue_draw_calls( swapchain_image_idx, pipeline, false, false ); // Dont clear color and depth
         if ( m_draw_aabbs )
             _issue_draw_calls( swapchain_image_idx, m_aabb_pipeline, false, false );
@@ -472,7 +466,8 @@ void Renderer::Run( ) {
 
         f64   triangles_per_sec = f64( m_frame_triangles ) / f64( avg_cpu_time * 1e-3 );
         auto& front             = m_camera.get_front( );
-        auto  title             = std::format( "cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; update: {:.3f}; draws: {} {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
+        auto  title             = std::format( "pipeline: {}; cpu: {:.3f}; gpu: {:.3f}; e_cull: {:.3f}; l_cull: {:.3f}; update: {:.3f}; draws: {} {}; [C/F] frustum: {}{}; [O/P] occlusion: {}{};",
+                                               ( m_use_mesh_shaders ? "mesh shaders" : "vertex" ),
                                                avg_cpu_time, avg_gpu_time, avg_cull_time, avg_late_cull_time, avg_update_scene_time, m_draws_count, after_culling_count, ( m_culling ) ? "ON" : "OFF", ( m_freeze_frustum ) ? " (FROZEN)" : "", m_occlusion ? "ON" : "OFF", ( m_lock_occlusion ) ? " (FROZEN)" : "" );
         SDL_SetWindowTitle( m_window, title.c_str( ) );
     }
@@ -524,11 +519,18 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, b
             .meshlets_buffer      = m_scene_geometry.meshlets_buffer.device_address,
             .meshlets_data_buffer = m_scene_geometry.meshlet_data_buffer.device_address,
             .vertex_buffer        = m_scene_geometry.vertices_buffer.device_address,
-            .draw_cmds            = m_command_buffer.device_address,
-    };
+            .tasks_buffer         = m_task_command_buffer.device_address,
+            .commands_buffer      = m_draw_command_buffer.device_address };
 
     vkCmdPushConstants( cmd, pipeline.layout, VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT, 0, sizeof( ScenePushConstants ), &pc );
-    vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
+
+    if ( m_use_mesh_shaders ) {
+        vkCmdDrawMeshTasksIndirectCountEXT( cmd, m_task_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawMeshTaskCommand ) );
+    }
+    else {
+        vkCmdBindIndexBuffer( cmd, m_scene_geometry.indices_buffer.buffer, 0, VK_INDEX_TYPE_UINT32 );
+        vkCmdDrawIndexedIndirectCount( cmd, m_draw_command_buffer.buffer, 0, m_command_count_buffer.buffer, 0, m_draws_count, sizeof( DrawIndexedIndirectCommand ) );
+    }
 
     vkCmdEndRendering( cmd );
 }
@@ -556,7 +558,8 @@ void Renderer::_early_cull( ) {
 
     CullData cull_data = {
             .draws             = m_gpu_scene.get_renderables_address( ),
-            .cmds              = m_command_buffer.device_address,
+            .tasks             = m_task_command_buffer.device_address,
+            .commands          = m_draw_command_buffer.device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
             .projection_matrix = m_camera.get_projection_matrix( ),
@@ -582,7 +585,10 @@ void Renderer::_early_cull( ) {
         cull_data.frustum[5] = m_current_frustum.planes[5];
     }
 
-    DrawCommandComputePushConstants pc{ .cull_data = m_cull_data.device_address, .time = m_delta_time };
+    DrawCommandComputePushConstants pc{
+            .cull_data = m_cull_data.device_address,
+            .time      = m_delta_time,
+            .use_task  = m_use_mesh_shaders };
     upload_buffer_data( m_cull_data, &cull_data, sizeof( CullData ) );
 
     vkCmdPushConstants( cmd, m_early_cull_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
@@ -629,7 +635,8 @@ void Renderer::_late_cull( ) {
     // update cull data
     CullData cull_data = {
             .draws             = m_gpu_scene.get_renderables_address( ),
-            .cmds              = m_command_buffer.device_address,
+            .tasks             = m_task_command_buffer.device_address,
+            .commands          = m_draw_command_buffer.device_address,
             .meshes            = m_scene_geometry.meshes_buffer.device_address,
             .visibility        = visible_draws.device_address,
             .projection_matrix = m_occlusion_perspective,
@@ -659,11 +666,13 @@ void Renderer::_late_cull( ) {
     upload_buffer_data( m_cull_data, &cull_data, sizeof( CullData ) );
     DrawCommandComputePushConstants pc{
             .cull_data = m_cull_data.device_address,
-            .time      = m_delta_time };
+            .time      = m_delta_time,
+            .use_task  = m_use_mesh_shaders };
 
     vkCmdPushConstants( cmd, m_late_cull_pipeline.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( DrawCommandComputePushConstants ), &pc );
     vkCmdDispatch( cmd, u32( m_draws_count + 31 ) / 32, 1, 1 );
-    buffer_barrier( cmd, m_command_buffer.buffer, m_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+    buffer_barrier( cmd, m_task_command_buffer.buffer, m_task_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
+    buffer_barrier( cmd, m_draw_command_buffer.buffer, m_draw_command_buffer.size, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_SECOND_CULL_STEP_END );
 }
@@ -759,8 +768,8 @@ void Renderer::_upload_scene_geometry( ) {
     u64 vertex_size                  = m_scene_geometry.vertices.size( ) * sizeof( Vertex );
     m_scene_geometry.vertices_buffer = create_buffer( vertex_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    // u64 indices_size = m_scene_geometry.indices.size( ) * sizeof( u32 );
-    // m_scene_geometry.indices_buffer = create_buffer(u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage)
+    u64 indices_size                = m_scene_geometry.indices.size( ) * sizeof( u32 );
+    m_scene_geometry.indices_buffer = create_buffer( indices_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
 
     u64 meshlets_size                = m_scene_geometry.meshlets.size( ) * sizeof( Meshlet );
     m_scene_geometry.meshlets_buffer = create_buffer( meshlets_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
@@ -776,6 +785,7 @@ void Renderer::_upload_scene_geometry( ) {
     upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.meshlets.data( ), meshlets_size, vertex_size );
     upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.meshlet_data.data( ), meshlet_data_size, vertex_size + meshlets_size );
     upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.meshes.data( ), meshes_size, vertex_size + meshlets_size + meshlet_data_size );
+    upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.indices.data( ), indices_size, vertex_size + meshlets_size + meshlet_data_size + meshes_size );
 
     // transfer from staging to each buffer
     {
@@ -804,16 +814,23 @@ void Renderer::_upload_scene_geometry( ) {
                 .dstOffset = 0,
                 .size      = meshes_size,
         };
+        const VkBufferCopy indices_copy = {
+                .srcOffset = vertex_size + meshlets_size + meshlet_data_size + meshes_size,
+                .dstOffset = 0,
+                .size      = indices_size,
+        };
 
         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.vertices_buffer.buffer, 1, &vertices_copy );
         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.meshlets_buffer.buffer, 1, &meshlets_copy );
         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.meshlet_data_buffer.buffer, 1, &meshlet_data_copy );
         vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.meshes_buffer.buffer, 1, &meshes_copy );
+        vkCmdCopyBuffer( cmd, g_ctx.staging_buffer.buffer, m_scene_geometry.indices_buffer.buffer, 1, &indices_copy );
 
         buffer_barrier( cmd, m_scene_geometry.vertices_buffer.buffer, m_scene_geometry.vertices_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
         buffer_barrier( cmd, m_scene_geometry.meshlets_buffer.buffer, m_scene_geometry.meshlets_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
         buffer_barrier( cmd, m_scene_geometry.meshlet_data_buffer.buffer, m_scene_geometry.meshlet_data_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
         buffer_barrier( cmd, m_scene_geometry.meshes_buffer.buffer, m_scene_geometry.meshes_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT );
+        buffer_barrier( cmd, m_scene_geometry.indices_buffer.buffer, m_scene_geometry.indices_buffer.size, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT, VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT );
 
         VKCALL( vkEndCommandBuffer( cmd ) );
         submit_command( cmd, g_ctx.graphics_queue, g_ctx.global_fence );
@@ -859,6 +876,9 @@ void Renderer::process_events( ) {
             }
             else if ( event.key.keysym.scancode == SDL_SCANCODE_B ) {
                 m_draw_aabbs = !m_draw_aabbs;
+            }
+            else if ( event.key.keysym.scancode == SDL_SCANCODE_M ) {
+                m_use_mesh_shaders = !m_use_mesh_shaders;
             }
         }
 
@@ -1006,6 +1026,10 @@ u32 tl::load_mesh_from_file( const std::string& gltf_path, const std::string& me
                     auto res                = meshopt_simplify( lod_indices.data( ), lod_indices.data( ), lod_indices.size( ), &vertices[0].vx, vertices.size( ), sizeof( Vertex ), target_index_count, error );
                     lod_indices.resize( res );
                 }
+
+                // save indices bounds for vertex pipeline multi-draw indirect
+                lod.index_count  = lod_indices.size( );
+                lod.index_offset = scene.indices.size( );
 
                 // insert new indices and vertices into the global scene
                 scene.indices.insert( scene.indices.end( ), lod_indices.begin( ), lod_indices.end( ) );
