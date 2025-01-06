@@ -1,4 +1,5 @@
 #include "common.slang"
+#include "utils.slang"
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -36,7 +37,7 @@ VertexOutput main( uint vertex_id : SV_VertexID ) {
     Vertex vertex = push_data.vertex_buffer[vertex_id];
 
     VertexOutput vertex_out;
-    vertex_out.color = float3(vertex.nx, vertex.ny, vertex.nz) * 0.5f + 0.5f;
+    vertex_out.color = random_color_from_u32(command.draw_id);  //float3(vertex.nx, vertex.ny, vertex.nz) * 0.5f + 0.5f;
     vertex_out.position = mul(push_data.projection, mul(push_data.view, mul(draw.model, float4(vertex.vx, vertex.vy, vertex.vz, 1.0f))));
 
     return vertex_out;

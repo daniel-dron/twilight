@@ -24,7 +24,7 @@
 
 using namespace tl;
 
-VkFence tl::create_fence( const VkFenceCreateFlags flags ) {
+VkFence tl::create_fence( const char* name, const VkFenceCreateFlags flags ) {
     VkFence fence;
 
     const VkFenceCreateInfo info = {
@@ -34,10 +34,13 @@ VkFence tl::create_fence( const VkFenceCreateFlags flags ) {
     };
 
     VKCALL( vkCreateFence( g_ctx.device, &info, nullptr, &fence ) );
+
+    set_object_name( g_ctx.device, VK_OBJECT_TYPE_FENCE, reinterpret_cast<u64>( fence ), name );
+
     return fence;
 }
 
-VkSemaphore tl::create_semaphore( const VkSemaphoreCreateFlags flags ) {
+VkSemaphore tl::create_semaphore( const char* name, const VkSemaphoreCreateFlags flags ) {
     VkSemaphore semaphore;
 
     const VkSemaphoreCreateInfo info{
@@ -46,6 +49,9 @@ VkSemaphore tl::create_semaphore( const VkSemaphoreCreateFlags flags ) {
             .flags = flags };
 
     VKCALL( vkCreateSemaphore( g_ctx.device, &info, nullptr, &semaphore ) );
+
+    set_object_name( g_ctx.device, VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<u64>( semaphore ), name );
+
     return semaphore;
 }
 
@@ -237,7 +243,7 @@ ShaderBindings tl::parse_shader_bindings( const std::string& json_content ) {
             layout_binding.binding                      = binding_index;
             layout_binding.descriptorType               = get_descriptor_type( param["type"] );
             layout_binding.descriptorCount              = 1;
-            layout_binding.stageFlags                   = VK_SHADER_STAGE_COMPUTE_BIT; // Assuming compute shader
+            layout_binding.stageFlags                   = VK_SHADER_STAGE_COMPUTE_BIT; // Assuming compute shader for now
 
             // Handle arrays
             if ( param["type"]["kind"] == "array" ) {
@@ -246,21 +252,19 @@ ShaderBindings tl::parse_shader_bindings( const std::string& json_content ) {
                 }
                 else {
                     // If elementCount is 0 or not specified, we'll use a reasonable default
-                    layout_binding.descriptorCount = 16; // You might want to make this configurable
+                    layout_binding.descriptorCount = 16;
                 }
             }
 
             binding_map[binding_index] = layout_binding;
         }
         else if ( binding_kind == "pushConstantBuffer" ) {
-            // Process push constant size
             if ( param["type"]["elementType"].contains( "size" ) ) {
                 result.push_constant_size = param["type"]["elementType"]["binding"]["size"].get<size_t>( );
             }
         }
     }
 
-    // Convert binding map to vector
     result.descriptor_bindings.reserve( binding_map.size( ) );
     for ( const auto& [_, binding] : binding_map ) {
         result.descriptor_bindings.push_back( binding );
@@ -396,7 +400,7 @@ VkSampler tl::create_reduction_sampler( ) {
     return create_sampler( info );
 }
 
-Buffer tl::create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
+Buffer tl::create_buffer( const char* name, u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
     assert( size != 0 );
 
     assert( !map_memory || ( vma_flags & VMA_ALLOCATION_CREATE_MAPPED_BIT ) && "Can't map memory without VMA_ALLOCATION_CREATE_MAPPED_BIT flag" );
@@ -428,14 +432,16 @@ Buffer tl::create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreat
         assert( buffer.device_address );
     }
 
+    set_object_name( g_ctx.device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<u64>( buffer.buffer ), name );
+
     return buffer;
 }
 
-FBuffer tl::create_fbuffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
+FBuffer tl::create_fbuffer( const char* name, u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address, bool map_memory ) {
     FBuffer fbuffer = { };
 
     for ( u32 i = 0; i < g_ctx.frame_overlap; i++ ) {
-        fbuffer.buffers.push_back( create_buffer( size, usage, vma_flags, vma_usage, get_device_address, map_memory ) );
+        fbuffer.buffers.push_back( create_buffer( name, size, usage, vma_flags, vma_usage, get_device_address, map_memory ) );
     }
 
     return fbuffer;
@@ -471,7 +477,7 @@ void tl::upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 off
     memcpy( ( void* )( buffer.gpu_data + offset ), data, size );
 }
 
-Image tl::create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels ) {
+Image tl::create_image( const char* name, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels ) {
     Image image;
 
     image.format = format;
@@ -499,10 +505,12 @@ Image tl::create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlag
     };
     VKCALL( vmaCreateImage( g_ctx.allocator, &create_info, &alloc_info, &image.image, &image.allocation, nullptr ) );
 
+    set_object_name( g_ctx.device, VK_OBJECT_TYPE_IMAGE, reinterpret_cast<u64>( image.image ), name );
+
     return image;
 }
 
-VkImageView tl::create_view( const Image& image, u32 mip, u32 mip_count ) {
+VkImageView tl::create_view( const char* name, const Image& image, u32 mip, u32 mip_count ) {
     VkImageView view = VK_NULL_HANDLE;
 
     const VkImageViewCreateInfo view_info{
@@ -521,6 +529,9 @@ VkImageView tl::create_view( const Image& image, u32 mip, u32 mip_count ) {
 
             } };
     VKCALL( vkCreateImageView( g_ctx.device, &view_info, nullptr, &view ) );
+
+    set_object_name( g_ctx.device, VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<u64>( view ), name );
+
     return view;
 }
 
@@ -543,4 +554,46 @@ u32 tl::get_mip_count( u32 width, u32 height ) {
     }
 
     return count;
+}
+
+// Debug
+void tl::begin_debug_region( VkCommandBuffer cmd, const char* name, const glm::vec4& color ) {
+    VkDebugUtilsLabelEXT label = {
+            .sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+            .pLabelName = name,
+            .color      = { color.x, color.y, color.z, color.w },
+    };
+    vkCmdBeginDebugUtilsLabelEXT( cmd, &label );
+}
+
+void tl::end_debug_region( VkCommandBuffer cmd ) {
+    vkCmdEndDebugUtilsLabelEXT( cmd );
+}
+
+void tl::insert_debug_label( VkCommandBuffer cmd, const char* name, const glm::vec4& color ) {
+    VkDebugUtilsLabelEXT label = {
+            .sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+            .pLabelName = name,
+            .color      = { color.x, color.y, color.z, color.w },
+    };
+    vkCmdInsertDebugUtilsLabelEXT( cmd, &label );
+}
+
+void tl::set_object_name( VkDevice device, VkObjectType object_type, uint64_t handle, const char* name ) {
+    VkDebugUtilsObjectNameInfoEXT name_info = {
+            .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+            .objectType   = object_type,
+            .objectHandle = handle,
+            .pObjectName  = name,
+    };
+    vkSetDebugUtilsObjectNameEXT( device, &name_info );
+}
+
+tl::DebugRegion::DebugRegion( VkCommandBuffer cmd, const char* name, const glm::vec4& color ) {
+    m_cmd = cmd;
+    begin_debug_region( cmd, name, color );
+}
+
+tl::DebugRegion::~DebugRegion( ) {
+    end_debug_region( m_cmd );
 }

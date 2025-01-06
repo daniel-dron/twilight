@@ -30,8 +30,8 @@ void tl::GPUScene::initialize( ) {
 
     m_renderables.resize( m_renderables_max, SubMeshRenderable{ glm::mat4( 1.0f ), 0, R_INVALID } );
 
-    m_renderables_gpu       = create_buffer( sizeof( SubMeshRenderable ) * m_renderables_max, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_dirty_renderables_gpu = create_buffer( sizeof( SubMeshRenderableUpdate ) * m_renderables_max, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
+    m_renderables_gpu       = create_buffer( "Scene Renderables", sizeof( SubMeshRenderable ) * m_renderables_max, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_dirty_renderables_gpu = create_buffer( "Scene Dirty Renderables", sizeof( SubMeshRenderableUpdate ) * m_renderables_max, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
 
     m_copy_pipeline.initialize( PipelineConfig{
             .name                 = "update renderables",
@@ -85,7 +85,7 @@ void tl::GPUScene::sync( ) {
     if ( m_dirty_renderables.size( ) >= m_renderables_max * 0.8f ) {
         auto& frame = g_ctx.get_current_frame( );
         auto& cmd   = frame.cmd;
-        
+
         upload_buffer_data( g_ctx.staging_buffer, m_renderables.data( ), sizeof( SubMeshRenderable ) * m_renderables_max );
 
         const VkBufferCopy draws_copy = {

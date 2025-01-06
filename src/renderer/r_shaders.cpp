@@ -307,6 +307,8 @@ void Pipeline::initialize( const PipelineConfig& config ) {
         }
         vkDestroyShaderModule( g_ctx.device, pixel, nullptr );
     }
+
+    set_object_name( g_ctx.device, VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<u64>( pipeline ), config.name );
 }
 
 void Pipeline::shutdown( ) {

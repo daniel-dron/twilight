@@ -31,6 +31,7 @@
 #include "r_shaders.h"
 #include "renderer/r_resources.h"
 #include "types.h"
+#include "utils.h"
 
 #include <renderer/r_context.h>
 #include <renderer/r_shaders.h>
@@ -93,26 +94,26 @@ void Renderer::Initialize( int count ) {
     } );
 
     m_early_cull_pipeline.initialize( PipelineConfig{
-            .name                 = "early cull commands",
+            .name                 = "Early Cull Pipeline",
             .compute              = "../shaders/early_cull.comp.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } } } );
 
     m_late_cull_pipeline.initialize( PipelineConfig{
-            .name                 = "late cull commands",
+            .name                 = "Late Cull Pipeline",
             .compute              = "../shaders/late_cull.comp.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DrawCommandComputePushConstants ) } },
     } );
     m_late_cull_set = allocate_descript_set( g_ctx.descriptor_pool, m_late_cull_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
 
     m_depthpyramid_pipeline.initialize( PipelineConfig{
-            .name                 = "depth pyramid",
+            .name                 = "Depth Pyramid Construction Pipeline",
             .compute              = "../shaders/depth_pyramid.comp.slang.spv",
             .push_constant_ranges = { VkPushConstantRange{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .size = sizeof( DepthPyramidPushConstants ) } },
     } );
     m_depthpyramid_sets = allocate_descript_set( g_ctx.descriptor_pool, m_depthpyramid_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
 
     m_overdraw_accumulation_pipeline.initialize( PipelineConfig{
-            .name                 = "overdraw accumulation",
+            .name                 = "Overdraw Accumulation Pipeline",
             .mesh                 = "../shaders/meshlet.mesh.slang.spv",
             .task                 = "../shaders/meshlet.task.slang.spv",
             .pixel                = "../shaders/overdraw_acc.frag.slang.spv",
@@ -124,7 +125,7 @@ void Renderer::Initialize( int count ) {
     } );
 
     m_overdraw_visualization_pipeline.initialize( PipelineConfig{
-            .name    = "overdraw visualization",
+            .name    = "Overdraw Visualization Pipeline",
             .compute = "../shaders/overdraw_viz.comp.slang.spv",
     } );
     m_overdraw_sets = allocate_descript_set( g_ctx.descriptor_pool, m_overdraw_visualization_pipeline.bindings[BindingsStage::COMPUTE].layout, g_ctx.frame_overlap );
@@ -132,15 +133,15 @@ void Renderer::Initialize( int count ) {
     m_linear_sampler    = create_sampler( );
     m_reduction_sampler = create_reduction_sampler( );
 
-    m_task_command_buffer  = create_buffer( sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_draw_command_buffer  = create_buffer( sizeof( DrawIndexedIndirectCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_command_count_buffer = create_buffer( sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_task_command_buffer  = create_buffer( "Task Commands Buffer", sizeof( DrawMeshTaskCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_draw_command_buffer  = create_buffer( "Draw Commands Buffer", sizeof( DrawIndexedIndirectCommand ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_command_count_buffer = create_buffer( "Command Count Buffer", sizeof( u32 ), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
     // m_draws_buffer         = create_fbuffer( sizeof( SubMeshRenderable ) * m_draws_count, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
-    m_visible_draws         = create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
-    m_visible_draws_staging = create_buffer( sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+    m_visible_draws         = create_buffer( "Visibility Buffer", sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_visible_draws_staging = create_buffer( "Visibility Buffer Staging", sizeof( u32 ) * m_draws_count, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
 
-    m_cull_data = create_buffer( sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
+    m_cull_data = create_buffer( "Cull Data", sizeof( CullData ), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, true, true );
 
     m_gpu_scene.initialize( );
 
@@ -279,16 +280,22 @@ void Renderer::Run( ) {
         begin_command( cmd, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT );
         vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_START );
 
-        // As a benchmark, updating 10k renderables. This is more taxing on the cpu than the entire bandwidth + compute costs
-        glm::mat4 model = glm::translate( glm::mat4( 1.0f ), m_camera.get_position( ) + glm::vec3( 0.0f, -1.0f, 0.0f ) );
-        model           = glm::scale( model, glm::vec3( 0.1f ) );
-        for ( u32 i = 0; i < 100; i++ ) {
-            m_gpu_scene.update_transform( { i }, model );
-        }
+        DEBUG_REGION( cmd, "Renderables Pass" );
 
-        vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_UPDATE_SCENE_START );
-        m_gpu_scene.sync( );
-        vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_UPDATE_SCENE_END );
+        // As a benchmark, updating 10k renderables. This is more taxing on the cpu than the entire bandwidth + compute costs
+        {
+            DEBUG_REGION( cmd, "Update Scene" );
+
+            glm::mat4 model = glm::translate( glm::mat4( 1.0f ), m_camera.get_position( ) + glm::vec3( 0.0f, -1.0f, 0.0f ) );
+            model           = glm::scale( model, glm::vec3( 0.1f ) );
+            for ( u32 i = 0; i < 100; i++ ) {
+                m_gpu_scene.update_transform( { i }, model );
+            }
+
+            vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_UPDATE_SCENE_START );
+            m_gpu_scene.sync( );
+            vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_UPDATE_SCENE_END );
+        }
 
         // For the FIRST frame, no meshes were visible last frame, so fill the buffer with 0s
         if ( g_ctx.current_frame == 0 ) {
@@ -477,6 +484,8 @@ void Renderer::_issue_draw_calls( u32 swapchain_image_idx, Pipeline& pipeline, b
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
 
+    DEBUG_REGION( cmd, "Issue Draw Calls" );
+
     VkClearValue              clear_color{ 0.05f, 0.1f, 0.3f, 1.0f };
     std::array                attachments = { attachment( frame.color.view, b_clear_color ? &clear_color : nullptr ) };
     VkRenderingAttachmentInfo depth_attachment{
@@ -540,6 +549,8 @@ void Renderer::_early_cull( ) {
     auto& cmd           = frame.cmd;
     auto& visible_draws = m_visible_draws;
 
+    DEBUG_REGION( cmd, "Early Cull" );
+
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_FIRST_CULL_STEP_START );
 
     // Reset command count buffer to 0 (using a staging buffer)
@@ -601,6 +612,8 @@ void Renderer::_late_cull( ) {
     auto& frame         = g_ctx.get_current_frame( );
     auto& cmd           = frame.cmd;
     auto& visible_draws = m_visible_draws;
+
+    DEBUG_REGION( cmd, "Late Cull" );
 
     vkCmdWriteTimestamp( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool_timestamps, GPU_TOTAL_SECOND_CULL_STEP_START );
 
@@ -680,6 +693,8 @@ void Renderer::_late_cull( ) {
 void Renderer::_construct_depth_pyramid( ) {
     auto& frame = g_ctx.get_current_frame( );
     auto& cmd   = frame.cmd;
+
+    DEBUG_REGION( cmd, "Depth Pyramid Construction" );
 
     vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_depthpyramid_pipeline.pipeline );
 
@@ -766,19 +781,19 @@ void Renderer::_construct_depth_pyramid( ) {
 void Renderer::_upload_scene_geometry( ) {
     // Create buffers
     u64 vertex_size                  = m_scene_geometry.vertices.size( ) * sizeof( Vertex );
-    m_scene_geometry.vertices_buffer = create_buffer( vertex_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_scene_geometry.vertices_buffer = create_buffer( "Scene Geometry Vertices", vertex_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     u64 indices_size                = m_scene_geometry.indices.size( ) * sizeof( u32 );
-    m_scene_geometry.indices_buffer = create_buffer( indices_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
+    m_scene_geometry.indices_buffer = create_buffer( "Scene Geometry Indices", indices_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY );
 
     u64 meshlets_size                = m_scene_geometry.meshlets.size( ) * sizeof( Meshlet );
-    m_scene_geometry.meshlets_buffer = create_buffer( meshlets_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_scene_geometry.meshlets_buffer = create_buffer( "Scene Geometry Meshlets", meshlets_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     u64 meshlet_data_size                = m_scene_geometry.meshlet_data.size( ) * sizeof( u32 );
-    m_scene_geometry.meshlet_data_buffer = create_buffer( meshlet_data_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_scene_geometry.meshlet_data_buffer = create_buffer( "Scene Geometry Meshlet Data", meshlet_data_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     u64 meshes_size                = m_scene_geometry.meshes.size( ) * sizeof( SubMesh );
-    m_scene_geometry.meshes_buffer = create_buffer( meshes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
+    m_scene_geometry.meshes_buffer = create_buffer( "Scene Geometry Meshes", meshes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 0, VMA_MEMORY_USAGE_GPU_ONLY, true );
 
     // upload to staging buffer first
     upload_buffer_data( g_ctx.staging_buffer, m_scene_geometry.vertices.data( ), vertex_size );

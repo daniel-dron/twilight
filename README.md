@@ -99,11 +99,10 @@ The engine implements several optimization techniques:
 - [x] Dynamic Descriptor Layout (parse slang json)
 - [x] Dynamic object support
 - [x] Vertex Pipeline
-- [ ] Vulkan debug and named objects and regions
+- [x] Vulkan debug and named objects and regions
 - [ ] Triangle Visibility Buffer 2.0
 - [ ] Static vs Dynamic instances
 - [ ] Data packing and memory footprint reduction
-- [ ] GPU Triangle culling
 - [ ] GPU Meshlet culling
 - [ ] Scene Loading
 - [ ] Diffuse Global Illumination

@@ -15,6 +15,7 @@
 #include <cassert>
 #include <pch.h>
 #include <print>
+#include <string>
 #include <vulkan/vulkan_core.h>
 #include "r_resources.h"
 
@@ -54,8 +55,8 @@ void Context::initialize( u32 width, u32 height, const std::string& name, struct
     _create_descriptor_pool( );
 
     // create global staging buffer (200MB)
-    staging_buffer  = create_buffer( 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
-    readback_buffer = create_buffer( 1000, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU, false, true );
+    staging_buffer  = create_buffer( "Global Staging Buffer", 1000 * 1000 * 200, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, false, true );
+    readback_buffer = create_buffer( "Readback Buffer", 1000, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_ALLOCATION_CREATE_MAPPED_BIT, VMA_MEMORY_USAGE_GPU_TO_CPU, false, true );
 }
 
 void Context::shutdown( ) {
@@ -115,7 +116,7 @@ void Context::_create_global_command( ) {
     };
     VKCALL( vkAllocateCommandBuffers( device, &cmd_info, &global_cmd ) );
 
-    global_fence = create_fence( VK_FENCE_CREATE_SIGNALED_BIT );
+    global_fence = create_fence( "Global Fence", VK_FENCE_CREATE_SIGNALED_BIT );
 }
 
 void Context::_create_descriptor_pool( ) {
@@ -257,6 +258,7 @@ void Context::_create_device( const std::string& name, struct SDL_Window* window
 }
 
 void Context::_create_frames( ) {
+    u32 i = 0;
     for ( auto& frame : frames ) {
         const VkCommandPoolCreateInfo info{
                 .sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -273,10 +275,10 @@ void Context::_create_frames( ) {
                 .commandBufferCount = 1,
         };
         VKCALL( vkAllocateCommandBuffers( device, &cmd_info, &frame.cmd ) );
-
-        frame.fence               = create_fence( VK_FENCE_CREATE_SIGNALED_BIT );
-        frame.swapchain_semaphore = create_semaphore( );
-        frame.render_semaphore    = create_semaphore( );
+        auto frame_name           = std::string( "Frame " ) + std::to_string( i );
+        frame.fence               = create_fence( ( frame_name + " Fence" ).c_str( ), VK_FENCE_CREATE_SIGNALED_BIT );
+        frame.swapchain_semaphore = create_semaphore( ( frame_name + " Swapchain Semaphore" ).c_str( ) );
+        frame.render_semaphore    = create_semaphore( ( frame_name + " Render Semaphore" ).c_str( ) );
 
         // Create timer pools
         VkQueryPoolCreateInfo query_pool_info = {
@@ -293,19 +295,22 @@ void Context::_create_frames( ) {
 
 
 void Context::_create_images( ) {
+    u32 idx = 0;
     for ( auto& frame : frames ) {
-        frame.color      = create_image( swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
-        frame.color.view = create_view( frame.color );
+        auto frame_name = std::string( "Frame " ) + std::to_string( idx );
 
-        frame.depth      = create_image( swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
-        frame.depth.view = create_view( frame.depth );
+        frame.color      = create_image( ( frame_name + " Color" ).c_str( ), swapchain.width, swapchain.height, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
+        frame.color.view = create_view( ( frame_name + " Color View" ).c_str( ), frame.color );
+
+        frame.depth      = create_image( ( frame_name + " Depth" ).c_str( ), swapchain.width, swapchain.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1 );
+        frame.depth.view = create_view( ( frame_name + " Depth View" ).c_str( ), frame.depth );
 
         frame.depth_pyramid_size   = nearest_pow_2( swapchain.width );
         frame.depth_pyramid_levels = get_mip_count( frame.depth_pyramid_size, frame.depth_pyramid_size );
-        frame.depth_pyramid        = create_image( frame.depth_pyramid_size, frame.depth_pyramid_size, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, frame.depth_pyramid_levels );
-        frame.depth_pyramid.view   = create_view( frame.depth_pyramid );
+        frame.depth_pyramid        = create_image( ( frame_name + " Pyramid" ).c_str( ), frame.depth_pyramid_size, frame.depth_pyramid_size, VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT, frame.depth_pyramid_levels );
+        frame.depth_pyramid.view   = create_view( ( frame_name + " Pyramid View" ).c_str( ), frame.depth_pyramid );
         for ( u32 i = 0; i < frame.depth_pyramid_levels; i++ ) {
-            frame.depth_pyramid_mips[i] = create_view( frame.depth_pyramid, i, 1 );
+            frame.depth_pyramid_mips[i] = create_view( ( frame_name + " Pyramid View " + std::to_string( i ) ).c_str( ), frame.depth_pyramid, i, 1 );
             assert( frame.depth_pyramid_mips[i] != VK_NULL_HANDLE );
         }
     }

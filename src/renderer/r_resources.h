@@ -19,8 +19,8 @@
 #include "pch.h"
 
 namespace tl {
-    VkFence                   create_fence( const VkFenceCreateFlags flags = 0 );
-    VkSemaphore               create_semaphore( const VkSemaphoreCreateFlags flags = 0 );
+    VkFence                   create_fence( const char* name, const VkFenceCreateFlags flags = 0 );
+    VkSemaphore               create_semaphore( const char* name, const VkSemaphoreCreateFlags flags = 0 );
     void                      begin_command( VkCommandBuffer cmd, const VkCommandBufferUsageFlags flags = 0 );
     void                      submit_graphics_command( VkCommandBuffer cmd, const VkPipelineStageFlags2 wait_stage, const VkPipelineStageFlags2 signal_stage, const VkSemaphore swapchain_semaphore, const VkSemaphore render_semaphore, const VkFence fence );
     void                      submit_command( VkCommandBuffer cmd, VkQueue queue, const VkFence fence );
@@ -63,10 +63,10 @@ namespace tl {
                                       .addressModeW            = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
                                       .anisotropyEnable        = VK_TRUE,
                                       .maxAnisotropy           = 16.0f,
-                                      .borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-                                      .unnormalizedCoordinates = VK_FALSE,
                                       .compareEnable           = VK_FALSE,
                                       .compareOp               = VK_COMPARE_OP_ALWAYS,
+                                      .borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+                                      .unnormalizedCoordinates = VK_FALSE,
                               } );
     VkSampler create_reduction_sampler( );
 
@@ -86,8 +86,8 @@ namespace tl {
         Buffer& get( );
     };
 
-    Buffer  create_buffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
-    FBuffer create_fbuffer( u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
+    Buffer  create_buffer( const char* name, u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
+    FBuffer create_fbuffer( const char* name, u64 size, VkBufferUsageFlags usage, VmaAllocationCreateFlags vma_flags, VmaMemoryUsage vma_usage, bool get_device_address = false, bool map_memory = false );
     void    destroy_buffer( Buffer& buffer );
     void    destroy_fbuffer( FBuffer& buffer );
     void    upload_buffer_data( const Buffer& buffer, void* data, u64 size, u64 offset = 0 );
@@ -105,10 +105,30 @@ namespace tl {
         VkFormat      format     = { };
         VmaAllocation allocation = { };
     };
-    Image       create_image( u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels );
-    VkImageView create_view( const Image& image, u32 mip = 0, u32 mip_count = VK_REMAINING_MIP_LEVELS );
+    Image       create_image( const char* name, u32 width, u32 height, VkFormat format, VkImageUsageFlags usage_flags, u32 mip_levels );
+    VkImageView create_view( const char* name, const Image& image, u32 mip = 0, u32 mip_count = VK_REMAINING_MIP_LEVELS );
     void        destroy_image( Image& image );
 
     u32 get_mip_count( u32 width, u32 height );
 
+    // Debug
+    void begin_debug_region( VkCommandBuffer cmd, const char* name, const glm::vec4& color );
+    void end_debug_region( VkCommandBuffer cmd );
+    void insert_debug_label( VkCommandBuffer cmd, const char* name, const glm::vec4& color );
+    void set_object_name( VkDevice device, VkObjectType object_type, uint64_t handle, const char* name );
+
+#define DEBUG_REGION( cmd, name ) DebugRegion debug_region##__LINE__( cmd, name, comptime_color( name ) )
+
+    class DebugRegion {
+    public:
+        DebugRegion( VkCommandBuffer cmd, const char* name, const glm::vec4& color );
+        ~DebugRegion( );
+
+        // Delete copy constructor and assignment operator to prevent misuse
+        DebugRegion( const DebugRegion& )            = delete;
+        DebugRegion& operator=( const DebugRegion& ) = delete;
+
+    private:
+        VkCommandBuffer m_cmd;
+    };
 } // namespace tl
